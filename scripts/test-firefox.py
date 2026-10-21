@@ -153,25 +153,28 @@ def main():
             client.click("#import-form button[type=submit]")
             client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
             client.wait("/^[0-9 ]+$/.test(document.querySelector('.code').textContent)")
-            assert client.js("return document.querySelectorAll('#group option').length") == 4
+            assert client.js("return Array.from(document.querySelectorAll('#group button'), button => button.textContent)") == ["All accounts (4)", "Ungrouped (1)", "Personal (2)", "Work (2)"]
+            assert client.js("return document.querySelector('#group [aria-pressed=true]').dataset.group") == "all"
             assert client.js("return document.getElementById('skipped-summary').textContent").startswith("1 ")
             client.clock(59000)
             client.wait("document.querySelector('.code').textContent === '287 082'")
             client.clock(60000)
             client.wait("document.querySelector('.code').textContent === '359 152'")
-            assert client.js("return document.querySelector('.timer').textContent") == "30s"
+            assert client.js("return document.querySelector('.entry progress').value") == 30
             client.click(".code")
             client.wait("document.getElementById('status').textContent.startsWith('Code copied for')")
-            client.js("const el = document.getElementById('group'); el.value = 'group:work'; el.dispatchEvent(new Event('change'));")
+            client.click('#group [data-group="group:work"]')
             assert client.js("return document.querySelectorAll('.entry').length") == 2
+            assert client.js("return document.querySelectorAll('#group [aria-pressed=true]').length") == 1
+            assert client.js("return document.querySelector('#group [aria-pressed=true]').dataset.group") == "group:work"
             client.fill("#search", "cloud")
             assert client.js("return document.querySelectorAll('.entry').length") == 1
             client.fill("#search", "not-found")
             assert client.js("return !document.getElementById('no-results').hidden")
             client.fill("#search", "")
-            client.js("const el = document.getElementById('group'); el.value = 'ungrouped'; el.dispatchEvent(new Event('change'));")
+            client.click('#group [data-group="ungrouped"]')
             assert client.js("return document.querySelectorAll('.entry').length") == 1
-            client.js("const el = document.getElementById('group'); el.value = 'all'; el.dispatchEvent(new Event('change'));")
+            client.click('#group [data-group="all"]')
             client.wait("document.querySelector('.code').textContent === '359 152'")
             (ROOT / "artifacts").mkdir(exist_ok=True)
             screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]

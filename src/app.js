@@ -6,7 +6,7 @@ const $ = (id) => document.getElementById(id);
 const fullPage = new URLSearchParams(location.search).has('tab');
 if (fullPage) document.body.classList.add('full-page');
 let saved = null, pending = null, database = null, visible = [], epoch = 0, busy = false;
-let activeRevision = null, statusTimer, refreshNeeded = false;
+let activeRevision = null, statusTimer, refreshNeeded = false, selectedGroup = 'all';
 const session = createSessionStore(browser.storage.session);
 const views = ['welcome', 'unlock', 'import-password', 'vault'];
 const groupNames = new Map();
@@ -29,7 +29,7 @@ function resetSecrets() {
   epoch++;
   database = null; activeRevision = null; visible = []; pending = null;
   groupNames.clear(); $('entries').replaceChildren(); $('skipped-list').replaceChildren();
-  $('group').replaceChildren(); $('search').value = '';
+  selectedGroup = 'all'; $('group').replaceChildren(); $('search').value = '';
   $('unlock-password').value = ''; $('import-secret').value = ''; $('confirm-secret').value = '';
 }
 
@@ -41,7 +41,7 @@ function lock(message = '') {
 async function task(message, action) {
   if (busy) return;
   busy = true;
-  const controls = [...document.querySelectorAll('button,input,select')].map((element) => [element, element.disabled]);
+  const controls = [...document.querySelectorAll('button,input')].map((element) => [element, element.disabled]);
   controls.forEach(([element]) => { element.disabled = true; });
   notify(message);
   try { await action(); }
@@ -63,15 +63,30 @@ function node(tag, className, text) {
   return element;
 }
 
+function addGroupBadge(label, value) {
+  const badge = node('button', 'group-badge', label);
+  badge.type = 'button';
+  badge.dataset.group = value;
+  badge.setAttribute('aria-pressed', String(value === selectedGroup));
+  badge.addEventListener('click', () => {
+    selectedGroup = value;
+    for (const button of $('group').children) {
+      button.setAttribute('aria-pressed', String(button === badge));
+    }
+    renderEntries();
+  });
+  $('group').append(badge);
+}
+
 function activate(db) {
   resetSecrets(); database = db; activeRevision = saved?.revision;
   db.groups.forEach((group) => groupNames.set(group.id, group.name));
   $('total').textContent = String(db.entries.length);
-  $('group').append(new Option(`All accounts (${db.entries.length})`, 'all'));
-  $('group').append(new Option(`Ungrouped (${db.entries.filter((entry) => !entry.groups.length).length})`, 'ungrouped'));
+  addGroupBadge(`All accounts (${db.entries.length})`, 'all');
+  addGroupBadge(`Ungrouped (${db.entries.filter((entry) => !entry.groups.length).length})`, 'ungrouped');
   for (const group of db.groups) {
     const count = db.entries.filter((entry) => entry.groups.includes(group.id)).length;
-    $('group').append(new Option(`${group.name} (${count})`, `group:${group.id}`));
+    addGroupBadge(`${group.name} (${count})`, `group:${group.id}`);
   }
   $('skipped').hidden = !db.skipped.length; $('skipped').open = false;
   $('skipped-summary').textContent = `${db.skipped.length} unsupported or invalid entries skipped`;
@@ -82,7 +97,7 @@ function activate(db) {
 function renderEntries() {
   if (!database) return;
   const query = $('search').value.toLocaleLowerCase().trim();
-  const selected = $('group').value;
+  const selected = selectedGroup;
   const entries = database.entries.filter((entry) => {
     const inGroup = selected === 'all' || selected === 'ungrouped' && !entry.groups.length || selected.startsWith('group:') && entry.groups.includes(selected.slice(6));
     return inGroup && `${entry.issuer} ${entry.name}`.toLocaleLowerCase().includes(query);
@@ -111,13 +126,12 @@ function renderEntries() {
         notify(`Code copied for ${title}.`, false, true);
       } catch { notify('Could not copy the code. You can select and copy it manually.', true); }
     });
-    const timer = node('span', 'timer');
     const progress = node('progress'); progress.max = entry.token.period;
     progress.setAttribute('aria-label', `Time remaining for ${title}`);
-    row.append(code, timer); main.append(row, progress);
+    row.append(code, progress);
     if (entry.groups.length) main.append(node('div', 'group-tags', entry.groups.map((id) => groupNames.get(id)).join(' · ')));
-    card.append(main); fragment.append(card);
-    visible.push({ entry, card, code, timer, progress, step: -1 });
+    card.append(main, row); fragment.append(card);
+    visible.push({ entry, card, code, progress, step: -1 });
   }
   $('entries').append(fragment);
   void updateCodes();
@@ -130,7 +144,6 @@ async function updateCodes() {
   for (const item of visible) {
     const seconds = Math.floor(now / 1000);
     const remaining = item.entry.token.period - seconds % item.entry.token.period;
-    item.timer.textContent = `${remaining}s`;
     item.progress.value = remaining;
     item.card.classList.toggle('expiring', remaining <= 5);
     if (item.step !== Math.floor(seconds / item.entry.token.period)) {
@@ -161,7 +174,6 @@ $('lock').addEventListener('click', () => {
   void task('Locking vault…', async () => { await session.clear(); lock(); });
 });
 $('search').addEventListener('input', renderEntries);
-$('group').addEventListener('change', renderEntries);
 $('file').addEventListener('change', () => {
   const file = $('file').files[0]; $('file').value = '';
   if (!file) return;
