@@ -1,0 +1,20 @@
+{
+  "name": "firefox-aegis",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test --experimental-test-isolation=none tests/*.test.mjs",
+    "test:firefox": "npm run build && python3 scripts/test-firefox.py",
+    "lint": "addons-linter extension --warnings-as-errors",
+    "package": "npm run build && npm run lint && python3 scripts/package.py"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.0.1"
+  },
+  "devDependencies": {
+    "addons-linter": "10.14.0",
+    "esbuild": "0.28.2"
+  }
+}

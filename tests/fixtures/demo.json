@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "header": { "slots": null, "params": null },
+  "db": {
+    "version": 3,
+    "groups": [
+      { "uuid": "personal", "name": "Personal" },
+      { "uuid": "work", "name": "Work" }
+    ],
+    "entries": [
+      { "type": "totp", "name": "alex@example.com", "issuer": "GitHub", "favorite": true, "groups": ["personal", "work"], "info": { "secret": "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", "algo": "SHA1", "digits": 6, "period": 30 } },
+      { "type": "totp", "name": "alex@example.com", "issuer": "Google", "groups": ["personal"], "info": { "secret": "JBSWY3DPEHPK3PXP", "algo": "SHA1", "digits": 6, "period": 30 } },
+      { "type": "totp", "name": "alex@studio.dev", "issuer": "Cloudflare", "groups": ["work"], "info": { "secret": "JBSWY3DPEHPK3PXP", "algo": "SHA256", "digits": 6, "period": 60 } },
+      { "type": "totp", "name": "Personal account", "issuer": "Dropbox", "groups": [], "info": { "secret": "JBSWY3DPEHPK3PXP", "algo": "SHA512", "digits": 8, "period": 30 } },
+      { "type": "hotp", "name": "Unsupported counter", "issuer": "Example", "info": { "secret": "JBSWY3DPEHPK3PXP", "counter": 0 } }
+    ]
+  }
+}
