@@ -1,5 +1,7 @@
 node_modules/
-artifacts/
+artifacts/*
+!artifacts/preview.png
+!artifacts/showoff.png
 test-results/
 *.log
 __pycache__/

@@ -5084,6 +5084,22 @@ var vModelText = {
 		el.value = newValue;
 	}
 };
+var vModelRadio = {
+	created(el, { value }, vnode) {
+		el.checked = looseEqual(value, vnode.props.value);
+		el[assignKey] = getModelAssigner(vnode);
+		addEventListener(el, "change", () => {
+			el[assignKey](getValue(el));
+		});
+	},
+	beforeUpdate(el, { value, oldValue }, vnode) {
+		el[assignKey] = getModelAssigner(vnode);
+		if (value !== oldValue) el.checked = looseEqual(value, vnode.props.value);
+	}
+};
+function getValue(el) {
+	return "_value" in el ? el._value : el.value;
+}
 var systemModifiers = [
 	"ctrl",
 	"shift",
@@ -6111,7 +6127,6 @@ async function localKey(password, salt, usages) {
 	}, false, usages);
 }
 async function sealLocal(vault, password) {
-	if (password.length < 8) throw new Error("Use a local vault password of at least 8 characters.");
 	const salt = crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(32));
 	const iv = crypto.getRandomValues(/* @__PURE__ */ new Uint8Array(12));
 	const key = await localKey(password, salt, ["encrypt"]);
@@ -6707,64 +6722,68 @@ var _hoisted_22 = {
 	class: "intro"
 };
 var _hoisted_23 = { key: 0 };
-var _hoisted_24 = ["hidden"];
-var _hoisted_25 = ["disabled"];
-var _hoisted_26 = ["hidden"];
-var _hoisted_27 = ["disabled"];
+var _hoisted_24 = {
+	key: 0,
+	class: "privacy"
+};
+var _hoisted_25 = ["hidden"];
+var _hoisted_26 = ["disabled"];
+var _hoisted_27 = ["hidden"];
 var _hoisted_28 = ["disabled"];
-var _hoisted_29 = { class: "privacy" };
-var _hoisted_30 = ["hidden"];
-var _hoisted_31 = { id: "import-title" };
-var _hoisted_32 = {
+var _hoisted_29 = ["disabled"];
+var _hoisted_30 = { class: "privacy" };
+var _hoisted_31 = ["hidden"];
+var _hoisted_32 = { id: "import-title" };
+var _hoisted_33 = {
 	id: "import-description",
 	class: "intro"
 };
-var _hoisted_33 = {
+var _hoisted_34 = ["disabled"];
+var _hoisted_35 = { for: "import-without-password" };
+var _hoisted_36 = { for: "encrypt-local" };
+var _hoisted_37 = {
 	id: "import-label",
 	for: "import-secret"
 };
-var _hoisted_34 = [
-	"disabled",
-	"minlength",
-	"autocomplete"
-];
-var _hoisted_35 = ["hidden"];
-var _hoisted_36 = ["disabled", "required"];
-var _hoisted_37 = { class: "form-actions" };
-var _hoisted_38 = ["disabled"];
-var _hoisted_39 = ["disabled"];
-var _hoisted_40 = ["hidden"];
+var _hoisted_38 = ["disabled", "autocomplete"];
+var _hoisted_39 = {
+	key: 0,
+	id: "confirm-wrap"
+};
+var _hoisted_40 = ["disabled"];
 var _hoisted_41 = ["disabled"];
-var _hoisted_42 = {
+var _hoisted_42 = ["hidden"];
+var _hoisted_43 = ["disabled"];
+var _hoisted_44 = {
 	id: "group",
 	class: "group-filters",
 	role: "group",
 	"aria-label": "Filter by group"
 };
-var _hoisted_43 = [
+var _hoisted_45 = [
 	"data-group",
 	"aria-pressed",
 	"disabled",
 	"onClick"
 ];
-var _hoisted_44 = ["hidden", "open"];
-var _hoisted_45 = { id: "skipped-summary" };
-var _hoisted_46 = { id: "skipped-list" };
-var _hoisted_47 = { class: "list-heading" };
-var _hoisted_48 = { id: "list-label" };
-var _hoisted_49 = {
+var _hoisted_46 = ["hidden", "open"];
+var _hoisted_47 = { id: "skipped-summary" };
+var _hoisted_48 = { id: "skipped-list" };
+var _hoisted_49 = { class: "list-heading" };
+var _hoisted_50 = { id: "list-label" };
+var _hoisted_51 = {
 	id: "total",
 	class: "count",
 	"aria-label": "Matching accounts"
 };
-var _hoisted_50 = { class: "entry-clip" };
-var _hoisted_51 = ["hidden"];
-var _hoisted_52 = ["disabled", "hidden"];
-var _hoisted_53 = ["disabled", "hidden"];
-var _hoisted_54 = ["disabled"];
-var _hoisted_55 = { class: "form-actions" };
+var _hoisted_52 = { class: "entry-clip" };
+var _hoisted_53 = ["hidden"];
+var _hoisted_54 = ["disabled", "hidden"];
+var _hoisted_55 = ["disabled", "hidden"];
 var _hoisted_56 = ["disabled"];
-var _hoisted_57 = ["disabled"];
+var _hoisted_57 = { class: "form-actions" };
+var _hoisted_58 = ["disabled"];
+var _hoisted_59 = ["disabled"];
 // src/App.vue
 var App_default = /* @__PURE__ */ defineComponent({
 	__name: "App",
@@ -6821,6 +6840,9 @@ var App_default = /* @__PURE__ */ defineComponent({
 			if (query.length > 0) selectedGroup.value = "all";
 		});
 		const unlockPassword = /* @__PURE__ */ ref(""), importSecret = /* @__PURE__ */ ref(""), confirmSecret = /* @__PURE__ */ ref("");
+		const protectLocal = /* @__PURE__ */ ref(false);
+		const encryptedImport = computed(() => pending.value ? isEncrypted(pending.value) : true);
+		const withoutPasswordInput = /* @__PURE__ */ ref();
 		const fileInput = /* @__PURE__ */ ref(), unlockInput = /* @__PURE__ */ ref(), importInput = /* @__PURE__ */ ref(), searchInput = /* @__PURE__ */ ref();
 		const removeDialog = /* @__PURE__ */ ref();
 		const skippedOpen = /* @__PURE__ */ ref(false);
@@ -6882,7 +6904,8 @@ var App_default = /* @__PURE__ */ defineComponent({
 			return lockSetting.value;
 		}
 		const session = createSessionStore(browser.storage.session, readLockSetting);
-		const lockDescription = computed(() => lockSetting.value === "restart" ? "Stays unlocked until Firefox restarts or you select Lock." : `Locks ${lockSetting.value} minute${lockSetting.value === "1" ? "" : "s"} after unlocking or opening the extension, or when Firefox restarts.`);
+		const unencrypted = computed(() => saved.value?.kind === "aegis" && !isEncrypted(saved.value.vault));
+		const lockDescription = computed(() => unencrypted.value ? "This vault is unencrypted and opens without a password. Import an encrypted export to use vault locking." : lockSetting.value === "restart" ? "Stays unlocked until Firefox restarts or you select Lock." : `Locks ${lockSetting.value} minute${lockSetting.value === "1" ? "" : "s"} after unlocking or opening the extension, or when Firefox restarts.`);
 		function saveConfig(event) {
 			const value = lockAfter(event.target.value);
 			task("", async () => {
@@ -6895,7 +6918,6 @@ var App_default = /* @__PURE__ */ defineComponent({
 			configOpen.value = !configOpen.value;
 			notify("");
 		}
-		const encrypted = computed(() => pending.value ? isEncrypted(pending.value) : true);
 		const groupNames = computed(() => new Map(database.value?.groups.map((group) => [group.id, group.name])));
 		const groups = computed(() => {
 			const db = database.value;
@@ -6939,6 +6961,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 			unlockPassword.value = "";
 			importSecret.value = "";
 			confirmSecret.value = "";
+			protectLocal.value = false;
 			skippedOpen.value = false;
 		}
 		function lock(message = "") {
@@ -6994,39 +7017,53 @@ var App_default = /* @__PURE__ */ defineComponent({
 			task("Reading local file…", async () => {
 				if (file.size > 20971520) throw new Error("Choose an Aegis JSON file smaller than 20 MB.");
 				const vault = parseFile(await file.text());
+				if (!isEncrypted(vault)) await normalizeDatabase(await decryptAegis(vault, ""));
 				resetSecrets();
 				pending.value = vault;
 				view.value = "import-password";
 				notify("");
 			}).then(() => {
-				if (pending.value) nextTick$1(() => importInput.value?.focus());
+				if (pending.value) nextTick$1(() => (encryptedImport.value ? importInput.value : withoutPasswordInput.value)?.focus());
 			});
+		}
+		function clearImportPassword() {
+			importSecret.value = "";
+			confirmSecret.value = "";
+			notify("");
 		}
 		function importVault() {
 			const vault = pending.value;
 			if (!vault) return;
-			const password = importSecret.value, confirmation = confirmSecret.value;
+			const password = importSecret.value, confirmation = confirmSecret.value, encryptLocal = protectLocal.value;
 			importSecret.value = "";
 			confirmSecret.value = "";
 			task("Opening your vault locally…", async () => {
-				const encrypted = isEncrypted(vault);
-				if (!encrypted && password !== confirmation) throw new Error("The passwords do not match. Please enter them again.");
-				const raw = await decryptAegis(vault, password), db = await normalizeDatabase(raw);
-				const next = encrypted ? {
-					kind: "aegis",
-					vault
-				} : await sealLocal(vault, password);
-				next.revision = crypto.randomUUID();
-				const unlockedAt = await session.remember(next, raw);
-				try {
-					await browser.storage.local.set({ vault: next });
-				} catch (error) {
-					await session.clear();
-					throw error;
-				}
-				saved.value = next;
-				activate(db, lockDeadline(await readLockSetting(), unlockedAt));
+				if (encryptLocal && password !== confirmation) throw new Error("The passwords do not match. Please enter them again.");
+				await finishImport(vault, password, encryptLocal);
 			});
+		}
+		async function finishImport(vault, password, encryptLocal) {
+			const raw = await decryptAegis(vault, password), db = await normalizeDatabase(raw);
+			const next = encryptLocal ? await sealLocal(vault, password) : {
+				kind: "aegis",
+				vault
+			};
+			next.revision = crypto.randomUUID();
+			const encrypted = next.kind === "local" || isEncrypted(vault);
+			let deadline = null;
+			if (encrypted) {
+				const unlockedAt = await session.remember(next, raw);
+				deadline = lockDeadline(await readLockSetting(), unlockedAt);
+			}
+			try {
+				await browser.storage.local.set({ vault: next });
+			} catch (error) {
+				if (encrypted) await session.clear();
+				throw error;
+			}
+			if (!encrypted) await session.clear();
+			saved.value = next;
+			activate(db, deadline);
 		}
 		function unlock() {
 			const password = unlockPassword.value;
@@ -7046,14 +7083,11 @@ var App_default = /* @__PURE__ */ defineComponent({
 			});
 		}
 		function manualLock() {
+			if (unencrypted.value) return;
 			task("Locking vault…", async () => {
 				await session.clear();
 				lock();
 			});
-		}
-		function cancelImport() {
-			pending.value = null;
-			task("", refreshVault);
 		}
 		function removeVault() {
 			removeDialog.value?.close();
@@ -7068,6 +7102,11 @@ var App_default = /* @__PURE__ */ defineComponent({
 			await readLockSetting();
 			const result = await browser.storage.local.get("vault");
 			saved.value = result.vault ?? null;
+			if (unencrypted.value) {
+				if (database.value && activeRevision === saved.value?.revision) return;
+				activate(await normalizeDatabase(await openStored(saved.value, "")), null);
+				return;
+			}
 			const raw = await session.read(saved.value, { resetTimeout });
 			const cache = await browser.storage.session.get(SESSION_KEY);
 			const deadline = lockDeadline(lockSetting.value, cache[SESSION_KEY]?.unlockedAt);
@@ -7118,7 +7157,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 		});
 		return (_ctx, _cache) => {
 			return openBlock(), createElementBlock("main", null, [
-				createBaseVNode("header", null, [_cache[15] || (_cache[15] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"m24 32 6 6 11-13\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis <span>for Firefox</span></h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
+				createBaseVNode("header", null, [_cache[17] || (_cache[17] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"m24 32 6 6 11-13\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis <span>for Firefox</span></h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
 					createBaseVNode("button", {
 						disabled: busy.value || view.value === "import-password",
 						id: "config",
@@ -7127,7 +7166,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						"aria-pressed": configOpen.value,
 						title: configOpen.value ? "Back" : "Settings",
 						"aria-label": configOpen.value ? "Back" : "Settings"
-					}, [..._cache[12] || (_cache[12] = [createBaseVNode("svg", {
+					}, [..._cache[14] || (_cache[14] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7137,14 +7176,14 @@ var App_default = /* @__PURE__ */ defineComponent({
 						viewBox: "0 0 16 16"
 					}, [createBaseVNode("path", { d: "M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0" }), createBaseVNode("path", { d: "M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z" })], -1)])], 8, _hoisted_2),
 					createBaseVNode("button", {
-						hidden: view.value !== "vault",
+						hidden: view.value !== "vault" || unencrypted.value,
 						disabled: busy.value,
 						id: "lock",
 						onClick: manualLock,
 						class: "icon-button",
 						title: "Lock vault",
 						"aria-label": "Lock vault"
-					}, [..._cache[13] || (_cache[13] = [createBaseVNode("svg", {
+					}, [..._cache[15] || (_cache[15] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7163,7 +7202,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						class: "icon-button",
 						title: "Open in a tab",
 						"aria-label": "Open in a tab"
-					}, [..._cache[14] || (_cache[14] = [createBaseVNode("svg", {
+					}, [..._cache[16] || (_cache[16] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7196,7 +7235,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						hidden: !configOpen.value,
 						class: "form-section"
 					}, [
-						_cache[20] || (_cache[20] = createBaseVNode("h2", null, "Settings", -1)),
+						_cache[21] || (_cache[21] = createBaseVNode("h2", null, "Settings", -1)),
 						createVNode(AnimatedDetails_default, {
 							id: "appearance-settings",
 							label: "Appearance",
@@ -7250,7 +7289,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 									id: "custom-theme-form",
 									onSubmit: _cache[4] || (_cache[4] = withModifiers(($event) => validCustomColor.value && saveTheme(validCustomColor.value), ["prevent"]))
 								}, [
-									_cache[16] || (_cache[16] = createBaseVNode("label", { for: "theme-hex" }, "Custom hex color", -1)),
+									_cache[18] || (_cache[18] = createBaseVNode("label", { for: "theme-hex" }, "Custom hex color", -1)),
 									createBaseVNode("div", _hoisted_15, [
 										createBaseVNode("button", {
 											id: "theme-picker",
@@ -7301,11 +7340,11 @@ var App_default = /* @__PURE__ */ defineComponent({
 							label: "Lock settings"
 						}, {
 							default: withCtx(() => [createBaseVNode("div", _hoisted_19, [
-								_cache[18] || (_cache[18] = createBaseVNode("label", { for: "lock-after" }, "Automatically lock vault", -1)),
+								_cache[20] || (_cache[20] = createBaseVNode("label", { for: "lock-after" }, "Automatically lock vault", -1)),
 								createBaseVNode("select", {
 									id: "lock-after",
 									value: lockSetting.value,
-									disabled: busy.value,
+									disabled: busy.value || unencrypted.value,
 									"aria-describedby": "lock-help",
 									onChange: saveConfig
 								}, [(openBlock(true), createElementBlock(Fragment, null, renderList(unref(LOCK_OPTIONS), (option) => {
@@ -7314,12 +7353,8 @@ var App_default = /* @__PURE__ */ defineComponent({
 										value: option.value
 									}, toDisplayString(option.label), 9, _hoisted_21);
 								}), 128))], 40, _hoisted_20),
-								createBaseVNode("p", _hoisted_22, [
-									createTextVNode(toDisplayString(lockDescription.value) + " ", 1),
-									lockSetting.value !== "restart" ? (openBlock(), createElementBlock("span", _hoisted_23, "Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. ")) : createCommentVNode("", true),
-									_cache[17] || (_cache[17] = createTextVNode("Changes apply immediately.", -1))
-								]),
-								_cache[19] || (_cache[19] = createBaseVNode("p", { class: "privacy" }, "Default: On browser restart. You can always select Lock to lock immediately.", -1))
+								createBaseVNode("p", _hoisted_22, [createTextVNode(toDisplayString(lockDescription.value) + " ", 1), !unencrypted.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [lockSetting.value !== "restart" ? (openBlock(), createElementBlock("span", _hoisted_23, "Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. ")) : createCommentVNode("", true), _cache[19] || (_cache[19] = createTextVNode("Changes apply immediately.", -1))], 64)) : createCommentVNode("", true)]),
+								!unencrypted.value ? (openBlock(), createElementBlock("p", _hoisted_24, "Default: On browser restart. You can always select Lock to lock immediately.")) : createCommentVNode("", true)
 							])]),
 							_: 1
 						})
@@ -7328,34 +7363,34 @@ var App_default = /* @__PURE__ */ defineComponent({
 						id: "welcome",
 						hidden: configOpen.value || view.value !== "welcome"
 					}, [
-						_cache[22] || (_cache[22] = createBaseVNode("div", {
+						_cache[23] || (_cache[23] = createBaseVNode("div", {
 							class: "hero-icon",
 							"aria-hidden": "true"
 						}, "✳", -1)),
-						_cache[23] || (_cache[23] = createBaseVNode("p", { class: "eyebrow" }, "A LITTLE PEACE OF MIND", -1)),
-						_cache[24] || (_cache[24] = createBaseVNode("h2", null, [
+						_cache[24] || (_cache[24] = createBaseVNode("p", { class: "eyebrow" }, "A LITTLE PEACE OF MIND", -1)),
+						_cache[25] || (_cache[25] = createBaseVNode("h2", null, [
 							createTextVNode("Your authenticator,"),
 							createBaseVNode("br"),
 							createTextVNode("right here.")
 						], -1)),
-						_cache[25] || (_cache[25] = createBaseVNode("p", { class: "intro" }, "Load an Aegis JSON export to get your verification codes, organized just the way you left them.", -1)),
+						_cache[26] || (_cache[26] = createBaseVNode("p", { class: "intro" }, "Load an Aegis JSON export to get your verification codes, organized just the way you left them.", -1)),
 						createBaseVNode("button", {
 							disabled: busy.value,
 							id: "first-import",
 							onClick: chooseFile,
 							class: "primary"
-						}, [..._cache[21] || (_cache[21] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_25),
-						_cache[26] || (_cache[26] = createBaseVNode("div", { class: "privacy" }, [createBaseVNode("span", { "aria-hidden": "true" }, "◉"), createTextVNode(" Entirely local. No account. No uploads.")], -1)),
-						_cache[27] || (_cache[27] = createBaseVNode("details", { class: "help" }, [createBaseVNode("summary", null, "How do I export from Aegis?"), createBaseVNode("p", null, "In the Android app, open Settings → Import & export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.")], -1))
-					], 8, _hoisted_24),
+						}, [..._cache[22] || (_cache[22] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_26),
+						_cache[27] || (_cache[27] = createBaseVNode("div", { class: "privacy" }, [createBaseVNode("span", { "aria-hidden": "true" }, "◉"), createTextVNode(" Entirely local. No account. No uploads.")], -1)),
+						_cache[28] || (_cache[28] = createBaseVNode("details", { class: "help" }, [createBaseVNode("summary", null, "How do I export from Aegis?"), createBaseVNode("p", null, "In the Android app, open Settings → Import & export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.")], -1))
+					], 8, _hoisted_25),
 					createBaseVNode("section", {
 						id: "unlock",
 						hidden: configOpen.value || view.value !== "unlock",
 						class: "form-section"
 					}, [
-						_cache[29] || (_cache[29] = createBaseVNode("p", { class: "eyebrow" }, "LOCAL VAULT", -1)),
-						_cache[30] || (_cache[30] = createBaseVNode("h2", null, "Welcome back.", -1)),
-						_cache[31] || (_cache[31] = createBaseVNode("p", {
+						_cache[30] || (_cache[30] = createBaseVNode("p", { class: "eyebrow" }, "LOCAL VAULT", -1)),
+						_cache[31] || (_cache[31] = createBaseVNode("h2", null, "Welcome back.", -1)),
+						_cache[32] || (_cache[32] = createBaseVNode("p", {
 							id: "unlock-description",
 							class: "intro"
 						}, "Unlock your vault to see your codes.", -1)),
@@ -7363,7 +7398,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "unlock-form",
 							onSubmit: withModifiers(unlock, ["prevent"])
 						}, [
-							_cache[28] || (_cache[28] = createBaseVNode("label", { for: "unlock-password" }, "Vault password", -1)),
+							_cache[29] || (_cache[29] = createBaseVNode("label", { for: "unlock-password" }, "Vault password", -1)),
 							withDirectives(createBaseVNode("input", {
 								disabled: busy.value,
 								id: "unlock-password",
@@ -7373,68 +7408,82 @@ var App_default = /* @__PURE__ */ defineComponent({
 								type: "password",
 								autocomplete: "current-password",
 								required: ""
-							}, null, 8, _hoisted_27), [[vModelText, unlockPassword.value]]),
+							}, null, 8, _hoisted_28), [[vModelText, unlockPassword.value]]),
 							createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Unlock vault", 8, _hoisted_28)
+							}, "Unlock vault", 8, _hoisted_29)
 						], 32),
-						createBaseVNode("p", _hoisted_29, toDisplayString(lockDescription.value), 1)
-					], 8, _hoisted_26),
+						createBaseVNode("p", _hoisted_30, toDisplayString(lockDescription.value), 1)
+					], 8, _hoisted_27),
 					createBaseVNode("section", {
 						id: "import-password",
 						hidden: configOpen.value || view.value !== "import-password",
 						class: "form-section"
 					}, [
-						_cache[33] || (_cache[33] = createBaseVNode("p", { class: "eyebrow" }, "IMPORT VAULT", -1)),
-						createBaseVNode("h2", _hoisted_31, toDisplayString(encrypted.value ? "Unlock your export." : "Protect your local copy."), 1),
-						createBaseVNode("p", _hoisted_32, toDisplayString(encrypted.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. Choose a password to encrypt the copy saved in Firefox. Your original file is unchanged."), 1),
+						_cache[36] || (_cache[36] = createBaseVNode("p", { class: "eyebrow" }, "IMPORT VAULT", -1)),
+						createBaseVNode("h2", _hoisted_32, toDisplayString(encryptedImport.value ? "Unlock your export." : "Encrypt your local copy?"), 1),
+						createBaseVNode("p", _hoisted_33, toDisplayString(encryptedImport.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. You can protect the copy saved in Firefox with a password, or import it without one. Your original file is unchanged."), 1),
 						createBaseVNode("form", {
 							id: "import-form",
 							onSubmit: withModifiers(importVault, ["prevent"])
 						}, [
-							createBaseVNode("label", _hoisted_33, toDisplayString(encrypted.value ? "Aegis export password" : "New local password (at least 8 characters)"), 1),
-							withDirectives(createBaseVNode("input", {
+							!encryptedImport.value ? (openBlock(), createElementBlock("fieldset", {
+								key: 0,
+								class: "import-options",
 								disabled: busy.value,
-								id: "import-secret",
-								ref_key: "importInput",
-								ref: importInput,
-								"onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => importSecret.value = $event),
-								minlength: encrypted.value ? 1 : 8,
-								autocomplete: encrypted.value ? "current-password" : "new-password",
-								type: "password",
-								required: ""
-							}, null, 8, _hoisted_34), [[vModelText, importSecret.value]]),
-							createBaseVNode("div", {
-								id: "confirm-wrap",
-								hidden: encrypted.value
-							}, [_cache[32] || (_cache[32] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
-								disabled: busy.value,
-								id: "confirm-secret",
-								"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => confirmSecret.value = $event),
-								required: !encrypted.value,
-								type: "password",
-								autocomplete: "new-password"
-							}, null, 8, _hoisted_36), [[vModelText, confirmSecret.value]])], 8, _hoisted_35),
-							createBaseVNode("div", _hoisted_37, [createBaseVNode("button", {
-								disabled: busy.value,
-								id: "cancel-import",
-								onClick: cancelImport,
-								class: "secondary",
-								type: "button"
-							}, "Cancel", 8, _hoisted_38), createBaseVNode("button", {
+								"aria-label": "Local copy protection"
+							}, [createBaseVNode("label", _hoisted_35, [withDirectives(createBaseVNode("input", {
+								id: "import-without-password",
+								ref_key: "withoutPasswordInput",
+								ref: withoutPasswordInput,
+								"onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => protectLocal.value = $event),
+								type: "radio",
+								name: "import-protection",
+								value: false,
+								onChange: clearImportPassword
+							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[33] || (_cache[33] = createBaseVNode("span", null, "Import without password", -1))]), createBaseVNode("label", _hoisted_36, [withDirectives(createBaseVNode("input", {
+								id: "encrypt-local",
+								"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => protectLocal.value = $event),
+								type: "radio",
+								name: "import-protection",
+								value: true,
+								onChange: clearImportPassword
+							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[34] || (_cache[34] = createBaseVNode("span", null, "Encrypt local copy", -1))])], 8, _hoisted_34)) : createCommentVNode("", true),
+							encryptedImport.value || protectLocal.value ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
+								createBaseVNode("label", _hoisted_37, toDisplayString(encryptedImport.value ? "Aegis export password" : "New local password"), 1),
+								withDirectives(createBaseVNode("input", {
+									disabled: busy.value,
+									id: "import-secret",
+									ref_key: "importInput",
+									ref: importInput,
+									"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => importSecret.value = $event),
+									autocomplete: encryptedImport.value ? "current-password" : "new-password",
+									type: "password",
+									required: ""
+								}, null, 8, _hoisted_38), [[vModelText, importSecret.value]]),
+								!encryptedImport.value ? (openBlock(), createElementBlock("div", _hoisted_39, [_cache[35] || (_cache[35] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
+									disabled: busy.value,
+									id: "confirm-secret",
+									"onUpdate:modelValue": _cache[9] || (_cache[9] = ($event) => confirmSecret.value = $event),
+									type: "password",
+									autocomplete: "new-password",
+									required: ""
+								}, null, 8, _hoisted_40), [[vModelText, confirmSecret.value]])])) : createCommentVNode("", true)
+							], 64)) : createCommentVNode("", true),
+							createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Import vault", 8, _hoisted_39)])
+							}, "Continue", 8, _hoisted_41)
 						], 32)
-					], 8, _hoisted_30),
+					], 8, _hoisted_31),
 					createBaseVNode("section", {
 						id: "vault",
 						hidden: configOpen.value || view.value !== "vault"
 					}, [
-						_cache[35] || (_cache[35] = createBaseVNode("label", {
+						_cache[38] || (_cache[38] = createBaseVNode("label", {
 							class: "search-label",
 							for: "search"
 						}, "Search accounts", -1)),
@@ -7443,13 +7492,13 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "search",
 							ref_key: "searchInput",
 							ref: searchInput,
-							"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => search.value = $event),
+							"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => search.value = $event),
 							type: "search",
 							placeholder: "Search service or account…",
 							autocomplete: "off",
 							spellcheck: "false"
-						}, null, 8, _hoisted_41), [[vModelText, search.value]]),
-						createBaseVNode("div", _hoisted_42, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
+						}, null, 8, _hoisted_43), [[vModelText, search.value]]),
+						createBaseVNode("div", _hoisted_44, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
 							return openBlock(), createElementBlock("button", {
 								key: group.value,
 								class: "group-badge",
@@ -7458,18 +7507,18 @@ var App_default = /* @__PURE__ */ defineComponent({
 								"aria-pressed": selectedGroup.value === group.value,
 								disabled: busy.value,
 								onClick: ($event) => selectedGroup.value = group.value
-							}, toDisplayString(group.label), 9, _hoisted_43);
+							}, toDisplayString(group.label), 9, _hoisted_45);
 						}), 128))]),
 						createBaseVNode("details", {
 							id: "skipped",
 							hidden: !database.value?.skipped.length,
 							open: skippedOpen.value,
-							onToggle: _cache[9] || (_cache[9] = ($event) => skippedOpen.value = $event.target.open),
+							onToggle: _cache[11] || (_cache[11] = ($event) => skippedOpen.value = $event.target.open),
 							class: "help warning"
-						}, [createBaseVNode("summary", _hoisted_45, toDisplayString(database.value?.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_46, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value?.skipped, (reason, index) => {
+						}, [createBaseVNode("summary", _hoisted_47, toDisplayString(database.value?.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_48, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value?.skipped, (reason, index) => {
 							return openBlock(), createElementBlock("li", { key: index }, toDisplayString(reason), 1);
-						}), 128))])], 40, _hoisted_44),
-						createBaseVNode("div", _hoisted_47, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_48, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_49, toDisplayString(entries.value.length), 1)]), _cache[34] || (_cache[34] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
+						}), 128))])], 40, _hoisted_46),
+						createBaseVNode("div", _hoisted_49, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_50, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_51, toDisplayString(entries.value.length), 1)]), _cache[37] || (_cache[37] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
 						database.value && !configOpen.value ? (openBlock(), createBlock(TransitionGroup, {
 							key: epoch.value,
 							id: "entries",
@@ -7483,7 +7532,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 								return openBlock(), createElementBlock("div", {
 									key: entry.id,
 									class: "entry-slot"
-								}, [createBaseVNode("div", _hoisted_50, [createVNode(AccountCard_default, {
+								}, [createBaseVNode("div", _hoisted_52, [createVNode(AccountCard_default, {
 									entry,
 									now: now.value,
 									"group-names": groupNames.value,
@@ -7502,23 +7551,23 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "no-results",
 							hidden: entries.value.length > 0,
 							class: "empty"
-						}, "No accounts match your search.", 8, _hoisted_51),
-						_cache[36] || (_cache[36] = createBaseVNode("p", { class: "clock-note" }, "Codes use your computer’s clock. Keep it in sync.", -1))
-					], 8, _hoisted_40)
+						}, "No accounts match your search.", 8, _hoisted_53),
+						_cache[39] || (_cache[39] = createBaseVNode("p", { class: "clock-note" }, "Codes use your computer’s clock. Keep it in sync.", -1))
+					], 8, _hoisted_42)
 				], 512),
-				createBaseVNode("footer", null, [_cache[37] || (_cache[37] = createBaseVNode("span", { class: "local-indicator" }, "LOCAL ONLY", -1)), createBaseVNode("div", null, [createBaseVNode("button", {
+				createBaseVNode("footer", null, [_cache[40] || (_cache[40] = createBaseVNode("span", { class: "local-indicator" }, "LOCAL ONLY", -1)), createBaseVNode("div", null, [createBaseVNode("button", {
 					disabled: busy.value,
 					id: "replace",
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
 					onClick: chooseFile,
 					class: "text-button"
-				}, "Load another file", 8, _hoisted_52), createBaseVNode("button", {
+				}, "Load another file", 8, _hoisted_54), createBaseVNode("button", {
 					disabled: busy.value,
 					id: "forget",
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
-					onClick: _cache[10] || (_cache[10] = ($event) => removeDialog.value?.showModal()),
+					onClick: _cache[12] || (_cache[12] = ($event) => removeDialog.value?.showModal()),
 					class: "text-button danger"
-				}, "Remove vault", 8, _hoisted_53)])]),
+				}, "Remove vault", 8, _hoisted_55)])]),
 				createBaseVNode("input", {
 					disabled: busy.value,
 					id: "file",
@@ -7528,25 +7577,25 @@ var App_default = /* @__PURE__ */ defineComponent({
 					onChange: chooseImport,
 					type: "file",
 					accept: ".json,application/json"
-				}, null, 40, _hoisted_54),
+				}, null, 40, _hoisted_56),
 				createBaseVNode("dialog", {
 					id: "remove-dialog",
 					ref_key: "removeDialog",
 					ref: removeDialog
 				}, [
-					_cache[38] || (_cache[38] = createBaseVNode("h2", null, "Remove this vault?", -1)),
-					_cache[39] || (_cache[39] = createBaseVNode("p", null, "This deletes the extension’s saved copy. Your original Aegis file stays on your device.", -1)),
-					createBaseVNode("div", _hoisted_55, [createBaseVNode("button", {
+					_cache[41] || (_cache[41] = createBaseVNode("h2", null, "Remove this vault?", -1)),
+					_cache[42] || (_cache[42] = createBaseVNode("p", null, "This deletes the extension’s saved copy. Your original Aegis file stays on your device.", -1)),
+					createBaseVNode("div", _hoisted_57, [createBaseVNode("button", {
 						disabled: busy.value,
 						id: "cancel-remove",
-						onClick: _cache[11] || (_cache[11] = ($event) => removeDialog.value?.close()),
+						onClick: _cache[13] || (_cache[13] = ($event) => removeDialog.value?.close()),
 						class: "secondary"
-					}, "Cancel", 8, _hoisted_56), createBaseVNode("button", {
+					}, "Cancel", 8, _hoisted_58), createBaseVNode("button", {
 						disabled: busy.value,
 						id: "confirm-remove",
 						onClick: removeVault,
 						class: "primary destructive"
-					}, "Remove vault", 8, _hoisted_57)])
+					}, "Remove vault", 8, _hoisted_59)])
 				], 512)
 			]);
 		};

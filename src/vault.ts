@@ -119,7 +119,6 @@ async function localKey(password: string, salt: Uint8Array<ArrayBuffer>, usages:
 }
 
 export async function sealLocal(vault: AegisVault, password: string): Promise<StoredVault> {
-  if (password.length < 8) throw new Error('Use a local vault password of at least 8 characters.');
   const salt = crypto.getRandomValues(new Uint8Array(32));
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await localKey(password, salt, ['encrypt']);

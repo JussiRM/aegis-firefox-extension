@@ -1,7 +1,13 @@
 import { build } from 'vite';
 import { readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 await build();
+// Reload the matching stylesheet when an installed extension is rebuilt.
+const css = await readFile('extension/app.css');
+const cssVersion = createHash('sha256').update(css).digest('hex').slice(0, 12);
+const html = await readFile('extension/app.html', 'utf8');
+await writeFile('extension/app.html', html.replace('href="./app.css"', `href="./app.css?v=${cssVersion}"`));
 await build({
   configFile: false,
   root: 'src',

@@ -33,14 +33,23 @@ test('groups support multiple memberships, legacy groups, ungrouped and unknown 
   assert.equal(db.skipped.length, 2);
 });
 
-test('plain imports are stored encrypted, authenticate passwords and reject tampering', async () => {
+test('unencrypted Aegis exports open from persistent storage without a password', async () => {
+  const vault = await fixture('upstream-plain.json');
+  const stored = JSON.parse(JSON.stringify({ kind: 'aegis', vault, revision: 'plain' }));
+  const raw = await openStored(stored, '');
+  assert.deepEqual(raw, vault.db);
+  assert.equal((await normalizeDatabase(raw)).entries.length, 3);
+});
+
+test('existing locally encrypted vaults still authenticate passwords and reject tampering', async () => {
   const plain = { version: 1, header: {}, db: { version: 3, entries: [entry()], groups: [] } };
   const stored = await sealLocal(plain, 'local password');
   assert.ok(!JSON.stringify(stored).includes('JBSWY3DPEHPK3PXP'));
   assert.deepEqual(await openStored(stored, 'local password'), plain.db);
   await assert.rejects(openStored(stored, 'wrong password'), /Incorrect password/);
   await assert.rejects(openStored({ ...stored, data: 'AAAA' }, 'local password'), /damaged/);
-  await assert.rejects(sealLocal(plain, 'short'), /8 characters/);
+  const shortPasswordVault = await sealLocal(plain, 'x');
+  assert.deepEqual(await openStored(shortPasswordVault, 'x'), plain.db);
 });
 
 test('malformed files, unsupported types and excessive scrypt settings are rejected', async () => {

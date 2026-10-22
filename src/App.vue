@@ -59,6 +59,9 @@ watch(search, query => {
   if (query.length > 0) selectedGroup.value = 'all';
 });
 const unlockPassword = ref(''), importSecret = ref(''), confirmSecret = ref('');
+const protectLocal = ref(false);
+const encryptedImport = computed(() => pending.value ? isEncrypted(pending.value) : true);
+const withoutPasswordInput = ref<HTMLInputElement>();
 const fileInput = ref<HTMLInputElement>(), unlockInput = ref<HTMLInputElement>(), importInput = ref<HTMLInputElement>(), searchInput = ref<HTMLInputElement>();
 const removeDialog = ref<HTMLDialogElement>();
 const skippedOpen = ref(false);
@@ -108,7 +111,10 @@ async function readLockSetting() {
   return lockSetting.value;
 }
 const session = createSessionStore(browser.storage.session, readLockSetting);
-const lockDescription = computed(() => lockSetting.value === 'restart'
+const unencrypted = computed(() => saved.value?.kind === 'aegis' && !isEncrypted(saved.value.vault));
+const lockDescription = computed(() => unencrypted.value
+  ? 'This vault is unencrypted and opens without a password. Import an encrypted export to use vault locking.'
+  : lockSetting.value === 'restart'
   ? 'Stays unlocked until Firefox restarts or you select Lock.'
   : `Locks ${lockSetting.value} minute${lockSetting.value === '1' ? '' : 's'} after unlocking or opening the extension, or when Firefox restarts.`);
 function saveConfig(event: Event) {
@@ -120,7 +126,6 @@ function saveConfig(event: Event) {
   });
 }
 function toggleConfig() { configOpen.value = !configOpen.value; notify(''); }
-const encrypted = computed(() => pending.value ? isEncrypted(pending.value) : true);
 const groupNames = computed(() => new Map(database.value?.groups.map(group => [group.id, group.name])));
 const groups = computed(() => {
   const db = database.value;
@@ -156,7 +161,7 @@ function resetSecrets() {
   database.value = null; activeRevision = undefined; pending.value = null;
   activeDeadline = null;
   selectedGroup.value = 'all'; search.value = '';
-  unlockPassword.value = ''; importSecret.value = ''; confirmSecret.value = '';
+  unlockPassword.value = ''; importSecret.value = ''; confirmSecret.value = ''; protectLocal.value = false;
   skippedOpen.value = false;
 }
 function lock(message = '') {
@@ -194,25 +199,37 @@ function chooseImport(event: Event) {
   void task('Reading local file…', async () => {
     if (file.size > MAX_FILE_SIZE) throw new Error('Choose an Aegis JSON file smaller than 20 MB.');
     const vault = parseFile(await file.text());
+    if (!isEncrypted(vault)) await normalizeDatabase(await decryptAegis(vault, ''));
     resetSecrets(); pending.value = vault; view.value = 'import-password'; notify('');
-  }).then(() => { if (pending.value) void nextTick(() => importInput.value?.focus()); });
+  }).then(() => { if (pending.value) void nextTick(() => (encryptedImport.value ? importInput.value : withoutPasswordInput.value)?.focus()); });
+}
+function clearImportPassword() {
+  importSecret.value = ''; confirmSecret.value = ''; notify('');
 }
 function importVault() {
   const vault = pending.value;
   if (!vault) return;
-  const password = importSecret.value, confirmation = confirmSecret.value;
+  const password = importSecret.value, confirmation = confirmSecret.value, encryptLocal = protectLocal.value;
   importSecret.value = ''; confirmSecret.value = '';
   void task('Opening your vault locally…', async () => {
-    const encrypted = isEncrypted(vault);
-    if (!encrypted && password !== confirmation) throw new Error('The passwords do not match. Please enter them again.');
-    const raw = await decryptAegis(vault, password), db = await normalizeDatabase(raw);
-    const next: StoredVault = encrypted ? { kind: 'aegis', vault } : await sealLocal(vault, password);
-    next.revision = crypto.randomUUID();
-    const unlockedAt = await session.remember(next, raw);
-    try { await browser.storage.local.set({ vault: next }); }
-    catch (error) { await session.clear(); throw error; }
-    saved.value = next; activate(db, lockDeadline(await readLockSetting(), unlockedAt));
+    if (encryptLocal && password !== confirmation) throw new Error('The passwords do not match. Please enter them again.');
+    await finishImport(vault, password, encryptLocal);
   });
+}
+async function finishImport(vault: AegisVault, password: string, encryptLocal: boolean) {
+  const raw = await decryptAegis(vault, password), db = await normalizeDatabase(raw);
+  const next: StoredVault = encryptLocal ? await sealLocal(vault, password) : { kind: 'aegis', vault };
+  next.revision = crypto.randomUUID();
+  const encrypted = next.kind === 'local' || isEncrypted(vault);
+  let deadline: number | null = null;
+  if (encrypted) {
+    const unlockedAt = await session.remember(next, raw);
+    deadline = lockDeadline(await readLockSetting(), unlockedAt);
+  }
+  try { await browser.storage.local.set({ vault: next }); }
+  catch (error) { if (encrypted) await session.clear(); throw error; }
+  if (!encrypted) await session.clear();
+  saved.value = next; activate(db, deadline);
 }
 function unlock() {
   const password = unlockPassword.value; unlockPassword.value = '';
@@ -227,8 +244,10 @@ function unlock() {
     activate(db, lockDeadline(await readLockSetting(), unlockedAt));
   });
 }
-function manualLock() { void task('Locking vault…', async () => { await session.clear(); lock(); }); }
-function cancelImport() { pending.value = null; void task('', refreshVault); }
+function manualLock() {
+  if (unencrypted.value) return;
+  void task('Locking vault…', async () => { await session.clear(); lock(); });
+}
 function removeVault() {
   removeDialog.value?.close();
   void task('Removing saved vault…', async () => {
@@ -239,6 +258,11 @@ async function refreshVault(resetTimeout = false) {
   await readLockSetting();
   const result = await browser.storage.local.get('vault');
   saved.value = result.vault ?? null;
+  if (unencrypted.value) {
+    if (database.value && activeRevision === saved.value?.revision) return;
+    activate(await normalizeDatabase(await openStored(saved.value, '')), null);
+    return;
+  }
   const raw = await session.read(saved.value, { resetTimeout });
   const cache = await browser.storage.session.get(SESSION_KEY);
   const deadline = lockDeadline(lockSetting.value, cache[SESSION_KEY]?.unlockedAt);
@@ -292,7 +316,7 @@ onUnmounted(() => {
         <button :disabled="busy || view === 'import-password'" id="config" @click="toggleConfig" class="icon-button" :aria-pressed="configOpen" :title="configOpen ? 'Back' : 'Settings'" :aria-label="configOpen ? 'Back' : 'Settings'">
           <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-gear" viewBox="0 0 16 16"><path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/><path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.893 3.434-.902 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z"/></svg>
         </button>
-        <button :hidden="view !== 'vault'" :disabled="busy" id="lock" @click="manualLock" class="icon-button" title="Lock vault" aria-label="Lock vault">
+        <button :hidden="view !== 'vault' || unencrypted" :disabled="busy" id="lock" @click="manualLock" class="icon-button" title="Lock vault" aria-label="Lock vault">
           <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-lock" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 0a4 4 0 0 1 4 4v2.05a2.5 2.5 0 0 1 2 2.45v5a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 2 13.5v-5a2.5 2.5 0 0 1 2-2.45V4a4 4 0 0 1 4-4M4.5 7A1.5 1.5 0 0 0 3 8.5v5A1.5 1.5 0 0 0 4.5 15h7a1.5 1.5 0 0 0 1.5-1.5v-5A1.5 1.5 0 0 0 11.5 7zM8 1a3 3 0 0 0-3 3v2h6V4a3 3 0 0 0-3-3"/></svg>
         </button>
         <button :disabled="busy" id="expand" @click="expand" class="icon-button" title="Open in a tab" aria-label="Open in a tab">
@@ -335,11 +359,11 @@ onUnmounted(() => {
       <AnimatedDetails id="lock-settings" label="Lock settings">
         <div class="settings-content">
           <label for="lock-after">Automatically lock vault</label>
-          <select id="lock-after" :value="lockSetting" :disabled="busy" aria-describedby="lock-help" @change="saveConfig">
+          <select id="lock-after" :value="lockSetting" :disabled="busy || unencrypted" aria-describedby="lock-help" @change="saveConfig">
             <option v-for="option in LOCK_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
           </select>
-          <p id="lock-help" class="intro">{{ lockDescription }} <span v-if="lockSetting !== 'restart'">Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. </span>Changes apply immediately.</p>
-          <p class="privacy">Default: On browser restart. You can always select Lock to lock immediately.</p>
+          <p id="lock-help" class="intro">{{ lockDescription }} <template v-if="!unencrypted"><span v-if="lockSetting !== 'restart'">Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. </span>Changes apply immediately.</template></p>
+          <p v-if="!unencrypted" class="privacy">Default: On browser restart. You can always select Lock to lock immediately.</p>
         </div>
       </AnimatedDetails>
     </section>
@@ -366,13 +390,19 @@ onUnmounted(() => {
     </section>
 
     <section id="import-password" :hidden="configOpen || view !== 'import-password'" class="form-section">
-      <p class="eyebrow">IMPORT VAULT</p><h2 id="import-title">{{ encrypted ? 'Unlock your export.' : 'Protect your local copy.' }}</h2>
-      <p id="import-description" class="intro">{{ encrypted ? 'Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device.' : 'This export is unencrypted. Choose a password to encrypt the copy saved in Firefox. Your original file is unchanged.' }}</p>
+      <p class="eyebrow">IMPORT VAULT</p><h2 id="import-title">{{ encryptedImport ? 'Unlock your export.' : 'Encrypt your local copy?' }}</h2>
+      <p id="import-description" class="intro">{{ encryptedImport ? 'Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device.' : 'This export is unencrypted. You can protect the copy saved in Firefox with a password, or import it without one. Your original file is unchanged.' }}</p>
       <form id="import-form" @submit.prevent="importVault">
-        <label id="import-label" for="import-secret">{{ encrypted ? 'Aegis export password' : 'New local password (at least 8 characters)' }}</label>
-        <input :disabled="busy" id="import-secret" ref="importInput" v-model="importSecret" :minlength="encrypted ? 1 : 8" :autocomplete="encrypted ? 'current-password' : 'new-password'" type="password" required>
-        <div id="confirm-wrap" :hidden="encrypted"><label for="confirm-secret">Confirm password</label><input :disabled="busy" id="confirm-secret" v-model="confirmSecret" :required="!encrypted" type="password" autocomplete="new-password"></div>
-        <div class="form-actions"><button :disabled="busy" id="cancel-import" @click="cancelImport" class="secondary" type="button">Cancel</button><button :disabled="busy" class="primary" type="submit">Import vault</button></div>
+        <fieldset v-if="!encryptedImport" class="import-options" :disabled="busy" aria-label="Local copy protection">
+          <label for="import-without-password"><input id="import-without-password" ref="withoutPasswordInput" v-model="protectLocal" type="radio" name="import-protection" :value="false" @change="clearImportPassword"><span>Import without password</span></label>
+          <label for="encrypt-local"><input id="encrypt-local" v-model="protectLocal" type="radio" name="import-protection" :value="true" @change="clearImportPassword"><span>Encrypt local copy</span></label>
+        </fieldset>
+        <template v-if="encryptedImport || protectLocal">
+          <label id="import-label" for="import-secret">{{ encryptedImport ? 'Aegis export password' : 'New local password' }}</label>
+          <input :disabled="busy" id="import-secret" ref="importInput" v-model="importSecret" :autocomplete="encryptedImport ? 'current-password' : 'new-password'" type="password" required>
+          <div v-if="!encryptedImport" id="confirm-wrap"><label for="confirm-secret">Confirm password</label><input :disabled="busy" id="confirm-secret" v-model="confirmSecret" type="password" autocomplete="new-password" required></div>
+        </template>
+        <button :disabled="busy" class="primary" type="submit">Continue</button>
       </form>
     </section>
 

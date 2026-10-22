@@ -88,11 +88,16 @@ class Marionette:
         self.command("Marionette:SetContext", {"value": "content"})
         self.wait(f"location.href === {json.dumps(url)} && document.readyState === 'complete'")
 
-    def upload(self, path):
+    def upload(self, path, *, encrypted=True, error=False):
         found = self.command("WebDriver:FindElement", {"using": "css selector", "value": "#file"})
         element_id = found["value"]["element-6066-11e4-a52e-4f735466cecf"]
         self.command("WebDriver:ElementSendKeys", {"id": element_id, "text": str(path), "value": list(str(path))})
-        self.wait("!document.getElementById('import-password').hidden && !document.getElementById('import-secret').disabled")
+        if error:
+            self.wait("document.getElementById('status').classList.contains('error') && !document.getElementById('search').disabled")
+        elif encrypted:
+            self.wait("!document.getElementById('import-password').hidden && !document.getElementById('import-secret').disabled")
+        else:
+            self.wait("!document.getElementById('import-password').hidden && document.getElementById('encrypt-local') && !document.getElementById('encrypt-local').disabled")
 
 
 def main():
@@ -392,11 +397,49 @@ def main():
             assert client.js("return getComputedStyle(document.getElementById('theme-hex')).colorScheme") == "light"
             client.click("#theme-picker")
             client.click("#config")
-            client.upload(ROOT / "tests/fixtures/demo.json")
-            client.fill("#import-secret", "test password")
-            client.fill("#confirm-secret", "test password")
+            client.upload(ROOT / "tests/fixtures/demo.json", encrypted=False)
+            assert client.js("return document.getElementById('import-secret') === null")
+            assert "Encrypt your local copy?" in client.js("return document.getElementById('import-title').textContent")
+            assert client.js("return document.getElementById('import-without-password').checked")
+            assert not client.js("return document.getElementById('encrypt-local').checked")
+            assert client.js("return document.querySelectorAll('#import-form input[type=radio]').length") == 2
+            assert client.js("return document.querySelectorAll('#import-password button').length") == 1
+            assert client.js("return document.querySelector('#import-form button').textContent") == "Continue"
+            assert client.js("return document.getElementById('cancel-import') === null")
+            client.wait("document.getAnimations().every(animation => animation.playState !== 'running')")
+            screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+            (ROOT / "artifacts/import-options-preview.png").write_bytes(base64.b64decode(screenshot))
+            client.click("#encrypt-local")
+            client.wait("document.getElementById('import-secret') && document.getElementById('confirm-secret')")
+            assert client.js("return document.getElementById('encrypt-local').checked")
+            screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+            (ROOT / "artifacts/import-encryption-preview.png").write_bytes(base64.b64decode(screenshot))
+            client.fill("#import-secret", "discarded password")
+            client.fill("#confirm-secret", "discarded password")
+            client.click("#import-without-password")
+            client.wait("document.getElementById('import-secret') === null && document.getElementById('confirm-secret') === null")
+            client.click("#encrypt-local")
+            client.wait("document.getElementById('import-secret')?.value === '' && document.getElementById('confirm-secret')?.value === ''")
+            client.click("#import-without-password")
+            client.wait("document.getElementById('import-secret') === null")
+            assert client.js("return document.getElementById('import-secret') === null")
+            assert client.js("return document.getElementById('import-form').checkValidity()")
             client.click("#import-form button[type=submit]")
             client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            assert client.js("return document.getElementById('import-password').hidden")
+            assert client.js("return document.getElementById('lock').hidden")
+            assert client.session_snapshot() == {}, "Unencrypted imports must not need an unlock session or timer"
+            client.click("#config")
+            assert client.js("return document.getElementById('lock-after').disabled")
+            assert "unencrypted" in client.js("return document.getElementById('lock-help').textContent")
+            client.click("#config")
+            invalid_plain = directory / "invalid-plain.json"
+            invalid_plain.write_text(json.dumps({"version": 1, "db": {"version": 99, "entries": []}}))
+            client.upload(invalid_plain, error=True)
+            assert client.js("return document.querySelectorAll('.entry').length") == 4
+            client.command("WebDriver:Refresh")
+            client.wait("document.querySelectorAll('.entry').length === 4 && document.activeElement?.id === 'search'")
+            assert client.js("return document.getElementById('lock').hidden")
             client.wait("/^[0-9 ]+$/.test(document.querySelector('.code').textContent)")
             assert client.js("return Array.from(document.querySelectorAll('#group button'), button => button.textContent)") == ["All accounts (4)", "Personal (2)", "Work (2)"]
             assert client.js("return document.querySelector('#group [aria-pressed=true]').dataset.group") == "all"
@@ -424,34 +467,84 @@ def main():
             client.fill("#search", "")
             client.wait("document.querySelectorAll('.entry').length === 4")
             client.wait("document.querySelector('.code').textContent === '359 152'")
+            # Show the default theme and let the account transition settle
+            # before capturing the README preview.
+            client.click("#config")
+            client.wait("!document.getElementById('settings').hidden")
+            client.click("#themes-light .theme-preset:first-child")
+            client.wait("document.querySelector('#themes-light .theme-preset:first-child').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+            client.click("#config")
+            client.wait("document.getElementById('settings').hidden && document.querySelectorAll('.entry').length === 4 && document.getAnimations().filter(animation => !animation.effect?.target?.classList.contains('timer-fill')).every(animation => animation.playState !== 'running')")
+            client.js("document.activeElement?.blur()")
+            main = client.command("WebDriver:FindElement", {"using": "css selector", "value": "main"})
+            main_id = main["value"]["element-6066-11e4-a52e-4f735466cecf"]
             (ROOT / "artifacts").mkdir(exist_ok=True)
-            screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+            screenshot = client.command("WebDriver:TakeScreenshot", {"id": main_id})["value"]
             (ROOT / "artifacts/preview.png").write_bytes(base64.b64decode(screenshot))
+            # A plain vault reopens without a password after Firefox restarts.
+            client.command("WebDriver:DeleteSession")
+            client.connection.close()
+            process.terminate()
+            process.wait(timeout=10)
+            process, client = launch()
+            client.navigate(url)
+            client.wait("document.querySelectorAll('.entry').length === 4 && document.activeElement?.id === 'search'")
+            assert client.js("return document.getElementById('lock').hidden")
+            assert client.session_snapshot() == {}
+            # The same plain file can instead be protected with a local password.
+            client.upload(ROOT / "tests/fixtures/demo.json", encrypted=False)
+            client.click("#encrypt-local")
+            client.wait("document.getElementById('import-secret') && document.getElementById('confirm-secret')")
+            assert client.js("return document.getElementById('import-secret').minLength") == -1
+            client.fill("#import-secret", "x")
+            client.fill("#confirm-secret", "y")
+            client.click("#import-form button[type=submit]")
+            client.wait("document.getElementById('status').classList.contains('error') && !document.getElementById('import-secret').disabled")
+            assert "do not match" in client.js("return document.getElementById('status').textContent")
+            client.fill("#import-secret", "x")
+            client.fill("#confirm-secret", "x")
+            assert client.js("return document.getElementById('import-form').checkValidity()")
+            client.click("#import-form button[type=submit]")
+            client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            assert not client.js("return document.getElementById('lock').hidden")
+            client.click("#lock")
+            client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
+            client.command("WebDriver:Refresh")
+            client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
+            client.fill("#unlock-password", "x")
+            client.click("#unlock-form button")
+            client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            # Replacing it with an encrypted export restores password locking.
+            client.upload(ROOT / "tests/fixtures/upstream-encrypted.json")
+            client.fill("#import-secret", "test")
+            client.click("#import-form button[type=submit]")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            assert not client.js("return document.getElementById('lock').hidden")
             client.click("#lock")
             client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
             assert client.js("return document.querySelectorAll('.entry').length") == 0
             client.fill("#unlock-password", "wrong password")
             client.click("#unlock-form button")
             client.wait("document.getElementById('status').classList.contains('error') && !document.getElementById('unlock-password').disabled")
-            client.fill("#unlock-password", "test password")
+            client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
-            client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
             # Closing/reloading a view keeps the browser-session unlock.
             client.command("WebDriver:Refresh")
-            client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
             # Opening the popup document restores the vault and focuses search.
             client.navigate(url.split("?")[0])
             client.wait("document.activeElement?.id === 'search' && !document.getElementById('search').disabled")
             client.navigate(url)
-            client.wait("document.querySelectorAll('.entry').length === 4 && document.activeElement?.id === 'search'")
+            client.wait("document.querySelectorAll('.entry').length === 3 && document.activeElement?.id === 'search'")
             # Import the real upstream encrypted export, including a failed attempt.
             client.upload(ROOT / "tests/fixtures/upstream-encrypted.json")
             client.fill("#import-secret", "wrong")
             client.click("#import-form button[type=submit]")
             client.wait("document.getElementById('status').classList.contains('error') && !document.getElementById('import-secret').disabled")
-            # Cancelling a failed replacement keeps the previous saved vault.
-            client.click("#cancel-import")
-            client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            # Reloading after a failed replacement keeps the previous saved vault.
+            client.command("WebDriver:Refresh")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
             client.upload(ROOT / "tests/fixtures/upstream-encrypted.json")
             client.fill("#import-secret", "test")
             client.click("#import-form button[type=submit]")
@@ -590,12 +683,31 @@ def main():
             client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            # Replacing a timed encrypted vault with plain JSON clears its
+            # session and alarm, and updates an already-open view as well.
+            first = client.command("WebDriver:GetWindowHandle")["value"]
+            second = client.command("WebDriver:NewWindow", {"type": "tab"})["handle"]
+            client.command("WebDriver:SwitchToWindow", {"handle": second})
+            client.navigate(url)
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            client.upload(ROOT / "tests/fixtures/demo.json", encrypted=False)
+            client.click("#import-form button[type=submit]")
+            client.wait("document.querySelectorAll('.entry').length === 4 && document.getElementById('lock').hidden")
+            deadline = time.monotonic() + 5
+            while client.session_snapshot() != {}:
+                assert time.monotonic() < deadline, "Plain replacement must clear the encrypted session and alarm"
+                time.sleep(0.1)
+            client.command("WebDriver:SwitchToWindow", {"handle": first})
+            client.wait("document.querySelectorAll('.entry').length === 4 && document.getElementById('lock').hidden")
+            client.clock(9000000000000)
+            client.wait("/^[0-9 ]+$/.test(document.querySelector('.code').textContent)")
+            assert client.js("return !document.getElementById('vault').hidden")
             client.click("#forget")
             client.click("#confirm-remove")
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
             client.command("WebDriver:Refresh")
             client.wait("!document.getElementById('welcome').hidden")
-            print("PASS: Firefox imports, codes, copy and filters; presets and exact hex backgrounds, validation, readable palettes and theme sync work; settings and theme survive restart; reopening resets the shared lock timer; timed lock syncs across tabs and works with all views closed; restart policy and manual lock work; real browser restart requires the password; vault removal persists.")
+            print("PASS: Plain JSON offers optional local encryption with password validation and locking, or password-free import and reopening after restart; invalid replacement preserves the vault; plain replacement clears the encrypted session and alarm across tabs; Firefox codes, copy, filters and themes work; encrypted vaults retain session, timed/manual locking and restart password checks; vault removal persists.")
             client.command("WebDriver:DeleteSession")
         finally:
             process.terminate()
