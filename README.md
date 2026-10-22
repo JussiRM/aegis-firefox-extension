@@ -2,9 +2,9 @@
 
 > **AI disclosure:** This extension was made entirely by AI.
 
-A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](https://github.com/beemdevelopment/Aegis) JSON export. Supports encrypted exports, groups (including accounts in multiple groups and older named groups), search, individual countdowns, and click-to-copy codes.
+A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](https://github.com/beemdevelopment/Aegis) JSON export.
 
-**Unofficial third-party extension:** Firefox Aegis is not affiliated with, endorsed by, or connected in any way to the official Aegis Authenticator app or its developers.
+**Unofficial third-party extension:** Firefox Aegis is not affiliated with or endorsed by the Aegis Authenticator or Firefox teams.
 
 ![Firefox Aegis in dark and light themes, showing demo TOTP accounts filtered by Gaming and Work groups](artifacts/showoff.png)
 
@@ -29,20 +29,21 @@ Requires Firefox **142 or later**.
 4. Open the **Firefox Aegis** toolbar button. Choose **Choose Aegis JSON** to open the import tab, then select your export.
 5. For an encrypted export, enter its Aegis password. For an unencrypted export, **Import without password** is selected by default. Select **Encrypt local copy** to show the password and confirmation fields if you want encryption, then select **Continue**.
 
-The built `extension/` directory is included; Node is only needed when editing the source. Temporary add-ons are removed when Firefox restarts. For permanent installation in regular Firefox, submit the archive to Mozilla for signing (listed or unlisted). The unsigned archive in `artifacts/` is a distribution package for signing and temporary loading, not a signed production release.
+The built `extension/` directory is included, so loading it requires no Node installation. Temporary add-ons are removed when Firefox restarts. To create an unsigned ZIP for temporary loading or submission to Mozilla for signing, run `npm ci` and `npm run package` (see [Develop and verify](#develop-and-verify)). Generated ZIPs are not included in the repository. Permanent installation in regular Firefox requires Mozilla signing, either listed or unlisted.
 
 ## Export from Android
 
 In Aegis, go to **Settings → Import & export → Export**, choose **Aegis (.JSON)**, and transfer the exported file to your computer. An encrypted export is recommended. Select the local file in the extension; nothing is uploaded.
 
-Imports are snapshots. Export and load a new file when your Android vault changes. A successful import replaces the saved vault; failed imports leave the previous saved copy intact. Use **Remove vault** to delete the extension's copy without changing the original file.
+Imports are snapshots. Export and load a new file when your Android vault changes. A successful import replaces the saved vault; failed imports leave the previous saved copy intact.
 
 ## Where data is stored on your device
 
 The original Aegis JSON file stays wherever you saved it, such as Downloads. Importing reads that file and saves a separate vault copy in the active Firefox profile; it does not move, modify, or delete the original, and the original is not needed to reopen the imported vault.
 
-- **Saved vault and settings:** The vault is stored under the `vault` key in [`browser.storage.local`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local), alongside lock and appearance preferences. This data persists across Firefox restarts and is not synced through Firefox Sync. Encrypted Aegis exports keep their original encryption. Unencrypted exports remain plaintext unless you choose local password protection, which encrypts the saved copy with AES-256-GCM and a key derived using PBKDF2-SHA-256 (600,000 iterations, a random salt, and a random IV). Passwords are not saved.
-- **Unlocked vault:** For password-protected vaults, the account data needed to generate codes is cached under `unlockedVault` in `browser.storage.session`, in memory. Locking, automatic lock expiry, removing the vault, restarting Firefox, or disabling/reloading the extension clears this cache. The persistent copy stays encrypted.
+- **Saved vault and settings:** The vault is stored under the `vault` key in [`browser.storage.local`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local), alongside lock and appearance preferences. This data persists across Firefox restarts and is not synced through Firefox Sync.
+- **Encryption:** Encrypted Aegis exports retain their original scrypt/AES-256-GCM encryption. Choosing **Encrypt local copy** for an unencrypted export encrypts the saved copy with AES-256-GCM and PBKDF2-HMAC-SHA-256 (600,000 iterations, a random 32-byte salt and 12-byte IV). Passwords are never saved or cached. Choosing **Import without password** stores plaintext that anyone using this Firefox profile can open, including after a restart; lock controls are unavailable for that vault.
+- **Unlocked vault:** For password-protected vaults, the account data needed to generate codes is cached under `unlockedVault` in Firefox's in-memory [`browser.storage.session`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/session). This API does not save the cache to disk. Locking, automatic lock expiry, removing the vault, restarting Firefox, or disabling/reloading the add-on clears it. The persistent copy stays encrypted. JavaScript does not guarantee immediate physical erasure of memory.
 
 To locate the profile on disk, open `about:support` in Firefox. Under **Application Basics**, find **Profile Folder** / **Profile Directory** and select **Open Folder**, **Show in Finder**, or **Open Directory**. This gives the actual location even with a custom profile or a sandboxed installation. Typical profile locations are:
 
@@ -58,42 +59,55 @@ Firefox manages the saved copy as an IndexedDB database rather than a standalone
 
 **Remove vault** deletes the saved vault and unlocked cache while keeping appearance and lock preferences. It leaves the original export and any backups untouched. Keep your Aegis export as your portable backup; Firefox's internal database files are managed by the browser.
 
-## Privacy and behavior
+## Locking
+
+For password-protected vaults, **Settings → Automatically lock vault** offers **On browser restart** (the default) or **1, 5, 15, 30, or 60 minutes**. Settings are also available from Firefox's extension preferences.
+
+- With **On browser restart**, closing/reopening the popup, opening another view, reloading an extension page, and inactivity preserve the unlocked session. Restarting Firefox or disabling/reloading the add-on requires the password again.
+- A timed lock counts from the most recent unlock or opening of an extension view. Opening a view renews the timer only while the vault is still unlocked. Changing the duration applies immediately to that timestamp; storage updates and code refreshes do not renew it.
+- Timed locking runs in the background even with every extension view closed. Reopening a view also checks the deadline if Firefox delayed an alarm, for example while the computer was asleep.
+- **Lock** locks all open views immediately. An expired or manually locked vault requires the password again.
+
+## Appearance
+
+**Settings → Appearance** offers a **Light / Dark** toggle, six presets per mode, and a custom background color. New installations start with Mint in Light mode. Selecting a preset saves its color and matching mode; the mode toggle also works independently.
+
+Select the color swatch to open the inline hue, saturation, and lightness sliders, or enter a 3- or 6-digit hex color (with or without `#`), then select **Apply**. The chosen color is the exact background across popup and tab views; cards, inputs, and text adapt for contrast. Changes sync across open views and persist across Firefox restarts. System appearance does not override your selection.
+
+## Privacy and compatibility
 
 - File reading, password derivation, decryption, and TOTP generation happen on this device. There are no servers, analytics, external fonts, remote code, content scripts, or website permissions. The extension's content security policy blocks network connections.
-- Vault data, lock preferences, and theme preferences are saved in `browser.storage.local`. Encrypted Aegis exports retain their original scrypt/AES-256-GCM encryption. For unencrypted exports, you can choose to encrypt the local copy with a password (AES-256-GCM, PBKDF2-HMAC-SHA-256 with 600,000 iterations, a random 32-byte salt and 12-byte nonce). If you choose **Import without password**, the copy stays unencrypted and reopens without a password, including after Firefox restarts; lock controls are unavailable for that vault. Your original file is unchanged. Previously imported copies protected with a local password still require that password.
-- **Settings → Appearance** offers a **Light / Dark** toggle (Light by default), six **Light themes** (Mint, Sky, Lavender, Blush, Sand, Mist), six **Dark themes** (Forest, Midnight, Plum, Wine, Bronze, Graphite), an inline color picker, and a custom 3- or 6-digit hex color (with or without `#`). The selected hex is the exact extension background, including settings opened in a tab. Cards and inputs stay near white in Light mode and near black in Dark mode, with subtle tints derived from the chosen color. Controls, borders, and text adapt for readable contrast. Foreground contrast and native controls adapt to whether the background is light or dark; system appearance does not change the chosen background. Light presets use soft pastel backgrounds; dark presets use deep, muted backgrounds. Select a preset to save its color and matching Light/Dark mode together. The mode toggle also works independently for custom combinations. New installations start with Mint in Light mode; existing saved colors are preserved. Select the color swatch to open hue, saturation, and lightness sliders inside the extension, then use **Apply** to save a picked or typed color. The picker stays inside the popup, avoiding native color dialogs that can close it. Changes sync across open extension views and persist across Firefox restarts.
-- For password-protected vaults, **Settings → Automatically lock vault** offers **On browser restart** (the default) or **1, 5, 15, 30, or 60 minutes** after unlocking or opening the extension. Settings are also available from Firefox's extension preferences. With the default, closing/reopening the popup, opening another view, reloading, and inactivity do not prompt again. Timed locking runs in the background even with every extension view closed. Reopening a view also checks the deadline if Firefox delayed an alarm, for example while the computer was asleep. Opening the popup or an extension page resets the shared timer if the vault is still unlocked. An expired or manually locked vault still requires the password. Changing the duration applies immediately to the most recent unlock or opening time; storage updates and code refreshes do not reset it. Firefox restart always locks password-protected vaults.
-- For password-protected vaults, the extension keeps the TOTP data needed to reopen the vault in Firefox's in-memory [`browser.storage.session`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/session); it is not saved to disk by that API and is cleared when Firefox stops or the extension is disabled/reloaded. Passwords are never cached. The persistent copy of a password-protected vault stays encrypted. Unencrypted vaults open directly from local storage. JavaScript does not guarantee immediate physical erasure of memory.
-- **Lock** clears the shared session cache and locks all open views of a password-protected vault. **Remove vault** clears both the session cache and the saved copy. Anyone using this Firefox profile can view unencrypted vaults; password-protected vaults remain accessible until the timer expires, you lock them, or you quit Firefox.
 - Clipboard access is write-only and happens when you click a code. The copied code stays in the system clipboard until you replace it; the extension does not read the clipboard or clear other clipboard content.
-- Supported: TOTP with SHA-1, SHA-256, or SHA-512, custom digits and periods, Aegis file version 1 / database versions 1–3. Other token types (HOTP, Steam, MOTP, Yandex) and invalid entries are skipped with visible details. Imported icons are ignored; service initials are shown.
+- Supported: TOTP with SHA-1, SHA-256, or SHA-512, custom digits and periods, Aegis file version 1 / database versions 1–3, multiple group memberships, and older named groups. Other token types (HOTP, Steam, MOTP, Yandex) and invalid entries are skipped with visible details. Imported icons are ignored; service initials are shown.
 - Aegis encrypted imports require a password slot. Android biometric-only slots cannot be unlocked in Firefox. Imports are limited to 20 MB and 10,000 entries; scrypt parameters are bounded to avoid excessive memory/CPU usage from malformed files.
 - Codes depend on your system time. Keep the computer clock synchronized.
 
 ## Develop and verify
 
-Requires Node.js 22.14+ and Python 3 (for packaging and the Firefox smoke test).
+Requires Node.js 22.14+. Packaging and the Firefox smoke test also require Python 3; the smoke test requires an installed Firefox browser.
 
 ```sh
 npm ci
-npm run typecheck
 npm run build
-npm test
-npm run lint
-npm run test:firefox
-npm run package
 ```
 
-`npm test` checks all 18 RFC 6238 reference vectors, period boundaries, malformed inputs, group compatibility, password/tamper rejection, local encryption, session cache lifetime and revision matching, every lock duration, settings changes, delayed alarms, custom color validation, palette contrast on light, dark, and saturated backgrounds, and interoperability with Aegis's own encrypted sample and Node's cryptography. `npm run lint` uses Mozilla's Add-ons Linter and fails on errors and unexpected warnings. `scripts/lint.mjs` allows only the exact `innerHTML` statement inside Vue's static-template renderer: it inserts trusted HTML produced by the Vue compiler, never imported vault data. Mozilla's raw linter still reports that library warning. Account data uses escaped interpolation; do not introduce `v-html`.
+Choose the relevant commands below when verifying changes or preparing a package:
 
-`npm run test:firefox` launches a disposable headless Firefox profile using its built-in Marionette protocol. It exercises real extension installation, password-free plaintext imports and reopening after restart, encrypted imports and password retries, failed replacement recovery, encrypted-to-plain replacement across tabs, code rollover, copy, group/search filtering, session unlock across closed/reloaded views, manual and timed locking across tabs, background expiration with all views closed, theme presets, custom hex validation, exact backgrounds across system appearances, Light/Dark surfaces, mode syncing and persistence, settings persistence, timer renewal when reopening the extension, encrypted-vault password re-entry after a real browser process restart, and removal. The disposable test archive has controllable clock and near-expiry hooks injected for rollover and lock tests; these hooks are never included in the shipped extension. It never opens the user's Firefox profile. Screenshots are written to `artifacts/preview.png` (public demo secrets), `artifacts/settings-preview.png`, and `artifacts/settings-dark-preview.png`.
+| Command | Purpose |
+| ------- | ------- |
+| `npm run typecheck` | Check TypeScript and Vue templates without building. |
+| `npm test` | Run unit tests for TOTP reference vectors, vault imports and encryption, sessions, lock policies, and theme contrast. |
+| `npm run lint` | Run Mozilla's Add-ons Linter against the built extension. |
+| `npm run test:firefox` | Build and run the Firefox integration smoke test. |
+| `npm run package` | Build, lint, and create `artifacts/firefox-aegis-<version>.zip`, using the manifest version. |
 
-`npm run package` produces `artifacts/firefox-aegis-1.1.0.zip`. Runtime dependencies are bundled in `extension/app.js`; no network or package installation is needed to run the extension. Edit `src/`, then rebuild. Files in `extension/` named `app.html`, `app.css`, `app.js`, and `background.js` are generated; the manifest and icons remain maintained directly there.
+Every build includes typechecking. The Firefox smoke test uses a disposable headless profile and public demo secrets to check imports, password handling, code rollover, copy/filtering, locking across views and restarts, appearance settings, and removal. It never opens the user's Firefox profile. Test-only clock and lock-expiry hooks are injected into its disposable archive. Screenshots are written under `artifacts/`, including `preview.png`, `settings-preview.png`, and `settings-dark-preview.png`.
 
-Edit styles in `src/app.scss`. Vite compiles this SCSS source with Sass during `npm run build` and writes `extension/app.css`. Both files use expanded formatting, and CSS minification is disabled for readable output. Changes made directly to the generated CSS are overwritten by the next build.
+The linter fails on errors and unexpected warnings. `scripts/lint.mjs` permits only Vue's exact static-template `innerHTML` assignment, which inserts compiler-generated HTML. Mozilla's raw linter still reports that warning. Render account data through escaped interpolation; do not introduce `v-html`.
 
-The UI uses Vue 3 single-file components with TypeScript and Vite. `src/App.vue` owns the import/unlock screens, settings page, and shared session state; `src/components/AccountCard.vue` renders each account and its countdown. A shared clock drives code updates, and account components discard pending results after unmounting. `src/vault.ts`, `src/totp.ts`, and `src/session.ts` contain framework-independent application logic, with shared models in `src/types.ts`. `src/theme.ts` derives a contrast-adjusted palette from the exact chosen background; `src/settings.ts` defines lock policies, while `src/auto-lock.ts` and `src/background.ts` schedule and enforce shared lock alarms. `npm run typecheck` checks TypeScript and Vue templates and runs before every production build. Unit tests execute the TypeScript modules directly using Node's type stripping. Vue templates are compiled during the build, so the extension needs no runtime compiler or relaxed content security policy.
+Edit application code in `src/` and styles in `src/app.scss`, then rebuild. Vite compiles Vue 3 components, TypeScript, and Sass into `extension/app.html`, `app.js`, `app.css`, and `background.js`; direct edits to those generated files are overwritten. JavaScript and CSS output remain unminified for readability. The manifest and icons are maintained directly in `extension/`. Runtime dependencies and compiled templates are bundled, so running the extension requires no package installation, runtime template compiler, or relaxed content security policy.
+
+`src/App.vue` coordinates imports, unlocking, settings, and shared state; `src/components/AccountCard.vue` renders accounts and countdowns. Vault, TOTP, and session logic live in `src/vault.ts`, `src/totp.ts`, and `src/session.ts`. Appearance is defined in `src/theme.ts`; lock policies and alarms live in `src/settings.ts`, `src/auto-lock.ts`, and `src/background.ts`. Unit tests execute TypeScript modules directly using Node's type stripping.
 
 ## Format and test sources
 
@@ -104,6 +118,4 @@ The UI uses Vue 3 single-file components with TypeScript and Vite. `src/App.vue`
 - For manual screenshots, load [`tests/fixtures/demo-encrypted.json`](tests/fixtures/demo-encrypted.json) with password **`demo`**. It contains 24 demo accounts across Personal, Work, and Gaming groups, and no unsupported entries. All secrets are public demo data.
 - [RFC 6238 Appendix B](https://www.rfc-editor.org/rfc/rfc6238#appendix-B).
 - Bundled scrypt comes from `@noble/hashes`. Its MIT license and the bundled Vue packages’ MIT licenses are included in `extension/THIRD_PARTY_LICENSE.txt`.
-- The settings, lock, and open-in-tab buttons use the `gear`, `lock`, and `box-arrow-up-right` SVGs from [Bootstrap Icons v1.13.1](https://github.com/twbs/icons/tree/v1.13.1/icons). Their paths are unchanged; display size is set to 18 pixels. Bootstrap Icons is MIT licensed; the original copyright and license are preserved in `licenses/bootstrap-icons-LICENSE.txt` and included in `extension/THIRD_PARTY_LICENSE.txt` on every build.
-
-Independent project; not affiliated with the Aegis or Firefox teams.
+- The settings, lock, and open-in-tab buttons use the `gear`, `lock`, and `box-arrow-up-right` SVGs from [Bootstrap Icons v1.13.1](https://github.com/twbs/icons/tree/v1.13.1/icons). Its MIT license is preserved in `licenses/bootstrap-icons-LICENSE.txt` and included in `extension/THIRD_PARTY_LICENSE.txt` on every build.
