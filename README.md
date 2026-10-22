@@ -4,6 +4,8 @@
 
 A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](https://github.com/beemdevelopment/Aegis) JSON export. Supports encrypted exports, groups (including accounts in multiple groups and older named groups), search, individual countdowns, and click-to-copy codes.
 
+**Unofficial third-party extension:** Firefox Aegis is not affiliated with, endorsed by, or connected in any way to the official Aegis Authenticator app or its developers.
+
 ## Load in Firefox
 
 Requires Firefox **142 or later**.
