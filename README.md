@@ -8,6 +8,17 @@ A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](h
 
 ![Firefox Aegis in dark and light themes, showing demo TOTP accounts filtered by Gaming and Work groups](artifacts/showoff.png)
 
+## Features
+
+- **Local-only codes:** Import an Aegis JSON export and generate TOTP codes on your device, without servers, uploads, or analytics.
+- **Flexible imports:** Open encrypted or unencrypted exports, with optional password protection for the saved copy of an unencrypted vault.
+- **Search and groups:** Find accounts by service or account name, or filter by Aegis groups, including accounts in multiple groups.
+- **Live countdowns and copy:** See each code's remaining time and click a code to copy it to the clipboard.
+- **Configurable locking:** Lock password-protected vaults manually, on browser restart, or after a selected timeout. Locking applies across open extension views.
+- **Custom appearance:** Choose light or dark mode, use built-in color presets, or set your own background with the inline color picker or a hex value.
+- **Popup and tab views:** Check codes from the toolbar popup or open the extension in a full tab.
+- **TOTP compatibility:** Supports SHA-1, SHA-256, and SHA-512 with custom code lengths and periods, and shows details for skipped unsupported or invalid entries.
+
 ## Load in Firefox
 
 Requires Firefox **142 or later**.
