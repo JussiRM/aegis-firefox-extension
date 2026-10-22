@@ -118,7 +118,10 @@ def main():
                         clock = """(() => {
                           const realNow = Date.now.bind(Date); let clock = null;
                           Date.now = () => clock ?? realNow();
-                          document.addEventListener('__firefox_aegis_test_clock', event => { clock = event.detail; });
+                          document.addEventListener('__firefox_aegis_test_clock', event => {
+                            clock = event.detail;
+                            document.dispatchEvent(new Event('visibilitychange'));
+                          });
                         })();\n"""
                         output.writestr("app.js", clock + path.read_text())
                     else:
@@ -162,18 +165,19 @@ def main():
             client.wait("document.querySelector('.code').textContent === '359 152'")
             assert client.js("return document.querySelector('.entry progress').value") == 30
             client.click(".code")
-            client.wait("document.getElementById('status').textContent.startsWith('Code copied for')")
+            client.wait("document.querySelector('.entry .copy-shine')")
+            assert not client.js("return document.getElementById('status').textContent.includes('Code copied')")
             client.click('#group [data-group="group:work"]')
-            assert client.js("return document.querySelectorAll('.entry').length") == 2
+            client.wait("document.querySelectorAll('.entry').length === 2")
             assert client.js("return document.querySelectorAll('#group [aria-pressed=true]').length") == 1
             assert client.js("return document.querySelector('#group [aria-pressed=true]').dataset.group") == "group:work"
             client.fill("#search", "cloud")
-            assert client.js("return document.querySelectorAll('.entry').length") == 1
+            client.wait("document.querySelectorAll('.entry').length === 1")
             client.fill("#search", "not-found")
             assert client.js("return !document.getElementById('no-results').hidden")
             client.fill("#search", "")
             client.click('#group [data-group="ungrouped"]')
-            assert client.js("return document.querySelectorAll('.entry').length") == 1
+            client.wait("document.querySelectorAll('.entry').length === 1")
             client.click('#group [data-group="all"]')
             client.wait("document.querySelector('.code').textContent === '359 152'")
             (ROOT / "artifacts").mkdir(exist_ok=True)
@@ -191,6 +195,11 @@ def main():
             # Closing/reloading a view keeps the browser-session unlock.
             client.command("WebDriver:Refresh")
             client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            # Opening the popup document restores the vault and focuses search.
+            client.navigate(url.split("?")[0])
+            client.wait("document.activeElement?.id === 'search' && !document.getElementById('search').disabled")
+            client.navigate(url)
+            client.wait("document.querySelectorAll('.entry').length === 4 && document.activeElement?.id === 'search'")
             # Import the real upstream encrypted export, including a failed attempt.
             client.upload(ROOT / "tests/fixtures/upstream-encrypted.json")
             client.fill("#import-secret", "wrong")

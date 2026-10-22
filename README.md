@@ -33,10 +33,11 @@ Imports are snapshots. Export and load a new file when your Android vault change
 
 ## Develop and verify
 
-Requires Node.js 22+ and Python 3 (for packaging and the Firefox smoke test).
+Requires Node.js 22.14+ and Python 3 (for packaging and the Firefox smoke test).
 
 ```sh
 npm ci
+npm run typecheck
 npm run build
 npm test
 npm run lint
@@ -44,11 +45,13 @@ npm run test:firefox
 npm run package
 ```
 
-`npm test` checks all 18 RFC 6238 reference vectors, period boundaries, malformed inputs, group compatibility, password/tamper rejection, local encryption, session cache lifetime and revision matching, and interoperability with Aegis's own encrypted sample and Node's cryptography. `npm run lint` uses Mozilla's Add-ons Linter with warnings treated as errors.
+`npm test` checks all 18 RFC 6238 reference vectors, period boundaries, malformed inputs, group compatibility, password/tamper rejection, local encryption, session cache lifetime and revision matching, and interoperability with Aegis's own encrypted sample and Node's cryptography. `npm run lint` uses Mozilla's Add-ons Linter and fails on errors and unexpected warnings. `scripts/lint.mjs` allows only the exact `innerHTML` statement inside Vue's static-template renderer: it inserts trusted HTML produced by the Vue compiler, never imported vault data. Mozilla's raw linter still reports that library warning. Account data uses escaped interpolation; do not introduce `v-html`.
 
 `npm run test:firefox` launches a disposable headless Firefox profile using its built-in Marionette protocol. It exercises real extension installation, plaintext/encrypted imports, password retries, failed replacement recovery, code rollover, copy, group/search filtering, session unlock across closed/reloaded views, manual locking across tabs, password re-entry after a real browser process restart, and removal. The disposable test archive has a controllable clock injected for rollover and inactivity tests; this hook is never included in the shipped extension. It never opens the user's Firefox profile. A screenshot using public demo secrets is written to `artifacts/preview.png`.
 
-`npm run package` produces `artifacts/firefox-aegis-1.1.0.zip`. Runtime dependencies are bundled in `extension/app.js`; no network or package installation is needed to run the extension. Edit `src/`, then rebuild. `extension/app.html` and `extension/app.css` are the UI sources.
+`npm run package` produces `artifacts/firefox-aegis-1.1.0.zip`. Runtime dependencies are bundled in `extension/app.js`; no network or package installation is needed to run the extension. Edit `src/`, then rebuild. Files in `extension/` named `app.html`, `app.css`, and `app.js` are generated; the manifest and icons remain maintained directly there.
+
+The UI uses Vue 3 single-file components with TypeScript and Vite. `src/App.vue` owns the import/unlock screens and shared session state; `src/components/AccountCard.vue` renders each account and its countdown. A shared clock drives code updates, and account components discard pending results after unmounting. `src/vault.ts`, `src/totp.ts`, and `src/session.ts` contain framework-independent application logic, with shared models in `src/types.ts`. `npm run typecheck` checks TypeScript and Vue templates and runs before every production build. Unit tests execute the TypeScript modules directly using Node's type stripping. Vue templates are compiled during the build, so the extension needs no runtime compiler or relaxed content security policy.
 
 ## Format and test sources
 
@@ -57,6 +60,6 @@ npm run package
 - `tests/fixtures/upstream-plain.json` and `upstream-encrypted.json` are public test fixtures from [Aegis's importer tests](https://github.com/beemdevelopment/Aegis/tree/master/app/src/test/resources/com/beemdevelopment/aegis/importers), distributed under Aegis's GPL-3.0 license (see `tests/fixtures/LICENSE`). Their documented test password is `test`.
 - `tests/fixtures/demo.json` contains public demo secrets, not real accounts. **Never use these secrets to protect an account.**
 - [RFC 6238 Appendix B](https://www.rfc-editor.org/rfc/rfc6238#appendix-B).
-- Bundled scrypt comes from `@noble/hashes`; its MIT license is included in `extension/THIRD_PARTY_LICENSE.txt`.
+- Bundled scrypt comes from `@noble/hashes`. Its MIT license and the bundled Vue packages’ MIT licenses are included in `extension/THIRD_PARTY_LICENSE.txt`.
 
 Independent project; not affiliated with the Aegis or Firefox teams.

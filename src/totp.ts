@@ -1,6 +1,8 @@
-const ALGORITHMS = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+import type { TotpInfo, Token } from './types.ts';
 
-export function decodeBase32(value) {
+const ALGORITHMS: Record<string, string> = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' };
+
+export function decodeBase32(value: unknown) {
   if (typeof value !== 'string') throw new Error('Missing Base32 secret.');
   const text = value.toUpperCase().replace(/\s/g, '').replace(/=+$/, '');
   if (!text || /[^A-Z2-7]/.test(text) || ![0, 2, 4, 5, 7].includes(text.length % 8)) {
@@ -18,7 +20,7 @@ export function decodeBase32(value) {
   return new Uint8Array(bytes);
 }
 
-export async function prepareTotp(info) {
+export async function prepareTotp(info?: TotpInfo): Promise<Token> {
   const algorithm = ALGORITHMS[String(info?.algo ?? 'SHA1').toUpperCase().replace(/-/g, '')];
   const digits = info?.digits ?? 6;
   const period = info?.period ?? 30;
@@ -32,7 +34,7 @@ export async function prepareTotp(info) {
   } finally { secret.fill(0); }
 }
 
-export async function generateTotp(token, timestamp = Date.now()) {
+export async function generateTotp(token: Token, timestamp = Date.now()) {
   if (!Number.isFinite(timestamp) || timestamp < 0) throw new Error('Invalid timestamp.');
   const seconds = Math.floor(timestamp / 1000);
   const counter = new Uint8Array(8);

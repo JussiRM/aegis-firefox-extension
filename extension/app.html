@@ -5,64 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Firefox Aegis</title>
   <link rel="icon" href="icons/shield.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="app.css">
-  <script src="app.js" defer></script>
+  <script type="module" crossorigin src="./app.js"></script>
+  <link rel="stylesheet" crossorigin href="./app.css">
 </head>
-<body>
-  <main>
-    <header>
-      <div class="brand"><img src="icons/shield.svg" width="38" height="38" alt=""><div><h1>Aegis <span>for Firefox</span></h1><p>Your codes. Your device.</p></div></div>
-      <button id="expand" class="icon-button" title="Open in a tab" aria-label="Open in a tab">↗</button>
-    </header>
-    <div id="status" class="status" role="status" aria-live="polite" hidden></div>
-
-    <section id="welcome" hidden>
-      <div class="hero-icon" aria-hidden="true">✳</div>
-      <p class="eyebrow">A LITTLE PEACE OF MIND</p>
-      <h2>Your authenticator,<br>right here.</h2>
-      <p class="intro">Load an Aegis JSON export to get your verification codes, organized just the way you left them.</p>
-      <button id="first-import" class="primary">Choose Aegis JSON <span aria-hidden="true">↗</span></button>
-      <div class="privacy"><span aria-hidden="true">◉</span> Entirely local. No account. No uploads.</div>
-      <details class="help"><summary>How do I export from Aegis?</summary><p>In the Android app, open Settings → Import &amp; export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.</p></details>
-    </section>
-
-    <section id="unlock" class="form-section" hidden>
-      <p class="eyebrow">LOCAL VAULT</p><h2>Welcome back.</h2>
-      <p id="unlock-description" class="intro">Unlock your vault to see your codes.</p>
-      <form id="unlock-form">
-        <label for="unlock-password">Vault password</label>
-        <input id="unlock-password" type="password" autocomplete="current-password" required>
-        <button class="primary" type="submit">Unlock vault</button>
-      </form>
-      <p class="privacy">Stays unlocked until Firefox restarts or you select Lock.</p>
-    </section>
-
-    <section id="import-password" class="form-section" hidden>
-      <p class="eyebrow">IMPORT VAULT</p><h2 id="import-title">Unlock your export.</h2>
-      <p id="import-description" class="intro"></p>
-      <form id="import-form">
-        <label id="import-label" for="import-secret">Aegis export password</label>
-        <input id="import-secret" type="password" required autocomplete="current-password">
-        <div id="confirm-wrap" hidden><label for="confirm-secret">Confirm password</label><input id="confirm-secret" type="password" autocomplete="new-password"></div>
-        <div class="form-actions"><button id="cancel-import" class="secondary" type="button">Cancel</button><button class="primary" type="submit">Import vault</button></div>
-      </form>
-    </section>
-
-    <section id="vault" hidden>
-      <div class="vault-heading"><div><p class="eyebrow">YOUR VAULT</p><h2>Verification codes <span id="total" class="count"></span></h2></div><button id="lock" class="secondary small">Lock</button></div>
-      <label class="search-label" for="search">Search accounts</label>
-      <input id="search" type="search" placeholder="Search service or account…" autocomplete="off" spellcheck="false">
-      <div id="group" class="group-filters" role="group" aria-label="Filter by group"></div>
-      <details id="skipped" class="help warning" hidden><summary id="skipped-summary"></summary><ul id="skipped-list"></ul></details>
-      <div class="list-heading"><span id="list-label">ALL ACCOUNTS</span><span>CLICK A CODE TO COPY</span></div>
-      <div id="entries" class="entries"></div>
-      <p id="no-results" class="empty" hidden>No accounts match your search.</p>
-      <p class="clock-note">Codes use your computer’s clock. Keep it in sync.</p>
-    </section>
-
-    <footer><span class="local-indicator">LOCAL ONLY</span><div><button id="replace" class="text-button" hidden>Load another file</button><button id="forget" class="text-button danger" hidden>Remove vault</button></div></footer>
-    <input id="file" type="file" accept=".json,application/json" hidden>
-    <dialog id="remove-dialog"><h2>Remove this vault?</h2><p>This deletes the extension’s saved copy. Your original Aegis file stays on your device.</p><div class="form-actions"><button id="cancel-remove" class="secondary">Cancel</button><button id="confirm-remove" class="primary destructive">Remove vault</button></div></dialog>
-  </main>
-</body>
+<body><div id="app"></div></body>
 </html>

@@ -1,6 +1,11 @@
-import { build } from 'esbuild';
-import { copyFile } from 'node:fs/promises';
+import { build } from 'vite';
+import { readFile, writeFile } from 'node:fs/promises';
 
-await build({ entryPoints: ['src/app.js'], bundle: true, outfile: 'extension/app.js', platform: 'browser', target: 'firefox142', format: 'iife', legalComments: 'eof' });
-await copyFile('node_modules/@noble/hashes/LICENSE', 'extension/THIRD_PARTY_LICENSE.txt');
-console.log('Built extension/app.js with all runtime dependencies bundled locally.');
+await build();
+// Include the licenses of bundled runtime dependencies alongside the extension.
+const licenses = await Promise.all([
+  ['@noble/hashes', 'LICENSE'], ['vue', 'LICENSE'],
+  ['@vue/shared', 'LICENSE'], ['@vue/reactivity', 'LICENSE'],
+  ['@vue/runtime-core', 'LICENSE'], ['@vue/runtime-dom', 'LICENSE'],
+].map(async ([name, file]) => `${name}\n\n${await readFile(`node_modules/${name}/${file}`, 'utf8')}`));
+await writeFile('extension/THIRD_PARTY_LICENSE.txt', licenses.join('\n\n'));

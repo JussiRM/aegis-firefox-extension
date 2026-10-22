@@ -4,17 +4,26 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs",
-    "test": "node --test --experimental-test-isolation=none tests/*.test.mjs",
+    "build": "npm run typecheck && node scripts/build.mjs",
+    "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/*.test.mjs",
     "test:firefox": "npm run build && python3 scripts/test-firefox.py",
-    "lint": "addons-linter extension --warnings-as-errors",
-    "package": "npm run build && npm run lint && python3 scripts/package.py"
+    "lint": "node scripts/lint.mjs",
+    "package": "npm run build && npm run lint && python3 scripts/package.py",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@noble/hashes": "2.0.1"
+    "@noble/hashes": "2.0.1",
+    "vue": "3.5.44"
   },
   "devDependencies": {
+    "@types/firefox-webext-browser": "143.0.1",
+    "@vitejs/plugin-vue": "6.0.10",
     "addons-linter": "10.14.0",
-    "esbuild": "0.28.2"
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vue-tsc": "3.3.13"
+  },
+  "engines": {
+    "node": ">=22.14.0"
   }
 }

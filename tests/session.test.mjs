@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSessionStore, SESSION_KEY } from '../src/session.js';
+import { createSessionStore, SESSION_KEY } from '../src/session.ts';
 
 function memoryStorage() {
   const values = {};

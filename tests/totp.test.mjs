@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeBase32, prepareTotp, generateTotp } from '../src/totp.js';
+import { decodeBase32, prepareTotp, generateTotp } from '../src/totp.ts';
 
 function encodeBase32(text) {
   const bits = [...Buffer.from(text)].map((byte) => byte.toString(2).padStart(8, '0')).join('');

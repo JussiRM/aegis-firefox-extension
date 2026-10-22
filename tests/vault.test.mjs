@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { scryptSync, randomBytes, createCipheriv } from 'node:crypto';
-import { parseFile, decryptAegis, normalizeDatabase, sealLocal, openStored } from '../src/vault.js';
+import { parseFile, decryptAegis, normalizeDatabase, sealLocal, openStored } from '../src/vault.ts';
 
 const fixture = async (name) => parseFile(await readFile(new URL(`fixtures/${name}`, import.meta.url), 'utf8'));
 const entry = (extra = {}) => ({ type: 'totp', issuer: 'Example', name: 'test@example.com', info: { secret: 'JBSWY3DPEHPK3PXP', digits: 6, algo: 'SHA1', period: 30 }, ...extra });
