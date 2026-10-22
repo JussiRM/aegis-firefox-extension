@@ -3,7 +3,9 @@
   "name": "Firefox Aegis",
   "version": "1.1.0",
   "description": "Your Aegis TOTP codes, locally in Firefox. Import a JSON vault and browse your groups.",
-  "permissions": ["storage", "clipboardWrite"],
+  "permissions": ["storage", "clipboardWrite", "alarms"],
+  "background": { "scripts": ["background.js"] },
+  "options_ui": { "page": "app.html?tab=1&config=1", "open_in_tab": true },
   "action": {
     "default_title": "Firefox Aegis",
     "default_popup": "app.html",

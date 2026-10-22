@@ -70,12 +70,18 @@ class Marionette:
     def clock(self, timestamp):
         self.js("document.dispatchEvent(new CustomEvent('__firefox_aegis_test_clock', {detail: arguments[0]}));", [timestamp])
 
+    def session_snapshot(self):
+        self.js("delete document.documentElement.dataset.sessionSnapshot; document.dispatchEvent(new Event('__firefox_aegis_test_session')); ")
+        self.wait("document.documentElement.dataset.sessionSnapshot")
+        return json.loads(self.js("return document.documentElement.dataset.sessionSnapshot"))
+
     def navigate(self, url):
         # WebDriver blocks direct extension URL navigation; navigate from
         # Firefox's browser context in this disposable profile instead.
         self.command("Marionette:SetContext", {"value": "chrome"})
         self.js("window.gBrowser.loadURI(Services.io.newURI(arguments[0]), {triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal()});", [url])
         self.command("Marionette:SetContext", {"value": "content"})
+        self.wait(f"location.href === {json.dumps(url)} && document.readyState === 'complete'")
 
     def upload(self, path):
         found = self.command("WebDriver:FindElement", {"using": "css selector", "value": "#file"})
@@ -122,7 +128,23 @@ def main():
                             clock = event.detail;
                             document.dispatchEvent(new Event('visibilitychange'));
                           });
-                        })();\n"""
+                          document.addEventListener('__firefox_aegis_test_expire', async event => {
+                            const cache = await browser.storage.session.get('unlockedVault');
+                            cache.unlockedVault.unlockedAt = realNow() - 60_000 + (event.detail ?? 1_000);
+                            await browser.storage.session.set(cache);
+                            document.documentElement.dataset.expiryReady = 'true';
+                          });
+                          document.addEventListener('__firefox_aegis_test_session', async () => {
+                            const cache = await browser.storage.session.get('unlockedVault');
+                            const alarm = await browser.alarms.get('lock-vault');
+                            document.documentElement.dataset.sessionSnapshot = JSON.stringify({
+                              timestamp: cache.unlockedVault?.unlockedAt,
+                              deadline: alarm?.scheduledTime,
+                            });
+                          });
+                        })();
+                        document.documentElement.dataset.cacheOnLoad = String(Boolean((await browser.storage.session.get('unlockedVault')).unlockedVault));
+                        \n"""
                         output.writestr("app.js", clock + path.read_text())
                     else:
                         output.write(path, path.relative_to(ROOT / "extension"))
@@ -150,13 +172,21 @@ def main():
             url = f"moz-extension://{UUID}/app.html?tab=1"
             client.navigate(url)
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
+            client.click("#config")
+            client.wait("!document.getElementById('settings').hidden")
+            assert client.js("return document.getElementById('lock-after').value") == "restart"
+            assert client.js("return Array.from(document.getElementById('lock-after').options, option => option.value)") == ["restart", "1", "5", "15", "30", "60"]
+            screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+            (ROOT / "artifacts").mkdir(exist_ok=True)
+            (ROOT / "artifacts/settings-preview.png").write_bytes(base64.b64decode(screenshot))
+            client.click("#config")
             client.upload(ROOT / "tests/fixtures/demo.json")
             client.fill("#import-secret", "test password")
             client.fill("#confirm-secret", "test password")
             client.click("#import-form button[type=submit]")
             client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
             client.wait("/^[0-9 ]+$/.test(document.querySelector('.code').textContent)")
-            assert client.js("return Array.from(document.querySelectorAll('#group button'), button => button.textContent)") == ["All accounts (4)", "Ungrouped (1)", "Personal (2)", "Work (2)"]
+            assert client.js("return Array.from(document.querySelectorAll('#group button'), button => button.textContent)") == ["All accounts (4)", "Personal (2)", "Work (2)"]
             assert client.js("return document.querySelector('#group [aria-pressed=true]').dataset.group") == "all"
             assert client.js("return document.getElementById('skipped-summary').textContent").startswith("1 ")
             client.clock(59000)
@@ -175,10 +205,12 @@ def main():
             client.wait("document.querySelectorAll('.entry').length === 1")
             client.fill("#search", "not-found")
             assert client.js("return !document.getElementById('no-results').hidden")
-            client.fill("#search", "")
-            client.click('#group [data-group="ungrouped"]')
+            # Accounts without a group remain searchable without a separate filter.
+            client.fill("#search", "dropbox")
             client.wait("document.querySelectorAll('.entry').length === 1")
-            client.click('#group [data-group="all"]')
+            assert client.js("return document.querySelector('.entry').textContent.includes('Dropbox')")
+            client.fill("#search", "")
+            client.wait("document.querySelectorAll('.entry').length === 4")
             client.wait("document.querySelector('.code').textContent === '359 152'")
             (ROOT / "artifacts").mkdir(exist_ok=True)
             screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
@@ -238,6 +270,61 @@ def main():
             client.command("WebDriver:SwitchToWindow", {"handle": second})
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
 
+            # Configure a timer and exercise the real background alarm. Only
+            # the disposable test hook moves the unlock timestamp near expiry.
+            client.clock(None)
+            client.click("#config")
+            client.js("const select = document.getElementById('lock-after'); select.value = '1'; select.dispatchEvent(new Event('change', {bubbles:true}));")
+            client.wait("document.getElementById('lock-after').value === '1' && !document.getElementById('lock-after').disabled")
+            client.click("#config")
+            client.command("WebDriver:SwitchToWindow", {"handle": first})
+            client.clock(None)
+
+            # Reopening the popup resets the shared timer and updates the
+            # deadline in the other, already-open view without a refresh loop.
+            client.js("document.dispatchEvent(new CustomEvent('__firefox_aegis_test_expire', {detail: 5_000}))")
+            client.wait("document.documentElement.dataset.expiryReady === 'true'")
+            old_timer = client.session_snapshot()
+            client.navigate(url.split("?")[0])
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            reset_timer = client.session_snapshot()
+            assert reset_timer['timestamp'] > old_timer['timestamp'] + 50_000
+            client.wait("!document.getElementById('lock').disabled")
+            assert client.session_snapshot()['timestamp'] == reset_timer['timestamp'], "Storage refreshes must not repeatedly reset the timeout"
+            client.command("WebDriver:SwitchToWindow", {"handle": second})
+            client.wait("!document.getElementById('lock').disabled")
+            # Advance only this view past the old deadline; it must use the
+            # new deadline rather than clearing the renewed shared session.
+            client.clock(old_timer['timestamp'] + 61_000)
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            assert client.session_snapshot()['timestamp'] == reset_timer['timestamp']
+            client.clock(None)
+            client.command("WebDriver:SwitchToWindow", {"handle": first})
+
+            client.js("document.dispatchEvent(new Event('__firefox_aegis_test_expire'))")
+            client.wait("document.documentElement.dataset.expiryReady === 'true'")
+            client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
+            client.command("WebDriver:SwitchToWindow", {"handle": second})
+            client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
+            client.fill("#unlock-password", "test")
+            client.click("#unlock-form button")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            client.js("document.dispatchEvent(new Event('__firefox_aegis_test_expire'))")
+            client.wait("document.documentElement.dataset.expiryReady === 'true'")
+            client.navigate("about:blank")
+            client.command("WebDriver:SwitchToWindow", {"handle": first})
+            client.navigate("about:blank")
+            time.sleep(1.5)
+            client.navigate(url)
+            client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
+            assert client.js("return document.documentElement.dataset.cacheOnLoad") == "false", "The background alarm must remove secrets before a view reopens"
+            client.click("#config")
+            assert client.js("return document.getElementById('lock-after').value") == "1"
+            client.click("#config")
+            client.fill("#unlock-password", "test")
+            client.click("#unlock-form button")
+            client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+
             # A real browser process restart clears the session unlock while
             # preserving the encrypted vault in the same disposable profile.
             client.command("WebDriver:DeleteSession")
@@ -256,7 +343,7 @@ def main():
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
             client.command("WebDriver:Refresh")
             client.wait("!document.getElementById('welcome').hidden")
-            print("PASS: Firefox imports, codes, copy and filters; unlock survives closed/reloaded views; manual lock syncs across tabs; real browser restart requires the password; vault removal persists.")
+            print("PASS: Firefox imports, codes, copy and filters; settings persist; reopening resets the shared lock timer; timed lock syncs across tabs and works with all views closed; restart policy and manual lock work; real browser restart requires the password; vault removal persists.")
             client.command("WebDriver:DeleteSession")
         finally:
             process.terminate()

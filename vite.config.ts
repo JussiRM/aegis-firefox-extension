@@ -12,6 +12,7 @@ export default defineConfig({
     emptyOutDir: false,
     target: 'firefox142',
     minify: false,
+    cssMinify: false,
     rolldownOptions: {
       input: 'src/app.html',
       output: { entryFileNames: 'app.js', assetFileNames: 'app.[ext]' },
