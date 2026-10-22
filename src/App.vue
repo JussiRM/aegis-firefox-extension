@@ -3,13 +3,53 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import { parseFile, isEncrypted, decryptAegis, normalizeDatabase, sealLocal, openStored, MAX_FILE_SIZE } from './vault';
 import { createSessionStore, SESSION_KEY } from './session';
 import { LOCK_OPTIONS, LOCK_SETTING_KEY, lockAfter, lockDeadline, type LockAfter } from './settings';
+import { THEME_GROUPS, DEFAULT_THEME, THEME_SETTING_KEY, THEME_MODE_SETTING_KEY, themeColor, themeMode, normalizeHex, applyTheme, type ThemeMode } from './theme';
 import AccountCard from './components/AccountCard.vue';
+import ColorPicker from './components/ColorPicker.vue';
+import AnimatedDetails from './components/AnimatedDetails.vue';
 import type { AegisVault, Database, StoredVault } from './types';
 
 type View = 'welcome' | 'unlock' | 'import-password' | 'vault';
 const view = ref<View>('welcome');
 const configOpen = ref(new URLSearchParams(location.search).has('config'));
 const lockSetting = ref<LockAfter>('restart');
+const selectedColor = ref(DEFAULT_THEME), customHex = ref(DEFAULT_THEME);
+const selectedMode = ref<ThemeMode>('light');
+const pickerOpen = ref(false);
+const validCustomColor = computed(() => normalizeHex(customHex.value));
+const customColorError = computed(() => !validCustomColor.value);
+function setTheme(value: unknown) {
+  selectedColor.value = themeColor(value);
+  customHex.value = selectedColor.value;
+  applyTheme(selectedColor.value, selectedMode.value);
+}
+async function readTheme() {
+  const settings = await browser.storage.local.get([THEME_SETTING_KEY, THEME_MODE_SETTING_KEY]);
+  selectedMode.value = themeMode(settings[THEME_MODE_SETTING_KEY]);
+  setTheme(settings[THEME_SETTING_KEY]);
+}
+function saveThemeMode(mode: ThemeMode) {
+  void task('', async () => {
+    await browser.storage.local.set({ [THEME_MODE_SETTING_KEY]: mode });
+    selectedMode.value = mode;
+    applyTheme(selectedColor.value, mode);
+  });
+}
+function saveTheme(color: string, mode: ThemeMode = selectedMode.value) {
+  const normalized = normalizeHex(color);
+  if (!normalized) return;
+  void task('', async () => {
+    await browser.storage.local.set({ [THEME_SETTING_KEY]: normalized, [THEME_MODE_SETTING_KEY]: mode });
+    selectedMode.value = mode;
+    setTheme(normalized);
+    pickerOpen.value = false;
+  });
+}
+applyTheme(DEFAULT_THEME);
+function togglePicker() {
+  if (!validCustomColor.value) customHex.value = selectedColor.value;
+  pickerOpen.value = !pickerOpen.value;
+}
 const saved = shallowRef<StoredVault | null>(null);
 const pending = shallowRef<AegisVault | null>(null);
 const database = shallowRef<Database | null>(null);
@@ -207,6 +247,11 @@ async function refreshVault(resetTimeout = false) {
   if (raw) activate(await normalizeDatabase(raw), deadline); else lock();
 }
 const storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
+  if (area === 'local' && changes[THEME_MODE_SETTING_KEY]) {
+    selectedMode.value = themeMode(changes[THEME_MODE_SETTING_KEY].newValue);
+    applyTheme(selectedColor.value, selectedMode.value);
+  }
+  if (area === 'local' && changes[THEME_SETTING_KEY]) setTheme(changes[THEME_SETTING_KEY].newValue);
   if (area === 'local' && changes[LOCK_SETTING_KEY]) {
     // Refresh the deadline in every open view after a settings change.
   } else if (area === 'local' && changes.vault) {
@@ -226,7 +271,7 @@ onMounted(() => {
   document.addEventListener('visibilitychange', visible);
   window.addEventListener('pagehide', resetSecrets);
   browser.storage.onChanged.addListener(storageChanged);
-  void task('Opening local vault…', () => refreshVault(true));
+  void task('Opening local vault…', async () => { await readTheme(); await refreshVault(true); });
 });
 onUnmounted(() => {
   transitionRevision++; cancelAnimations();
@@ -241,7 +286,7 @@ onUnmounted(() => {
 <template>
   <main>
     <header>
-      <div class="brand"><img src="icons/shield.svg" width="32" height="32" alt=""><h1>Aegis <span>for Firefox</span></h1></div>
+      <div class="brand"><svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="var(--accent)"/><path d="M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z" fill="none" stroke="var(--on-accent)" stroke-width="3.5"/><path d="m24 32 6 6 11-13" fill="none" stroke="var(--on-accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Aegis <span>for Firefox</span></h1></div>
       <!-- Bootstrap Icons v1.13.1 (MIT); see licenses/bootstrap-icons-LICENSE.txt. -->
       <div class="header-actions">
         <button :disabled="busy || view === 'import-password'" id="config" @click="toggleConfig" class="icon-button" :aria-pressed="configOpen" :title="configOpen ? 'Back' : 'Settings'" :aria-label="configOpen ? 'Back' : 'Settings'">
@@ -259,14 +304,44 @@ onUnmounted(() => {
     <div id="status" :hidden="!status" :class="{ error: statusError }" class="status" role="status" aria-live="polite">{{ status }}</div>
 
     <section id="settings" :hidden="!configOpen" class="form-section">
-      <p class="eyebrow">CONFIGURATION</p><h2>Vault settings.</h2>
-      <p class="intro">Choose how long your vault stays unlocked.</p>
-      <label for="lock-after">Automatically lock vault</label>
-      <select id="lock-after" :value="lockSetting" :disabled="busy" aria-describedby="lock-help" @change="saveConfig">
-        <option v-for="option in LOCK_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
-      </select>
-      <p id="lock-help" class="intro">{{ lockDescription }} Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. Changes apply immediately.</p>
-      <p class="privacy">Default: On browser restart. You can always select Lock to lock immediately.</p>
+      <h2>Settings</h2>
+      <AnimatedDetails id="appearance-settings" label="Appearance" summary-id="appearance-label">
+        <fieldset class="theme-settings" :disabled="busy" aria-labelledby="appearance-label">
+          <div class="theme-modes" role="group" aria-label="Color mode">
+            <button id="theme-light" type="button" class="theme-mode" :aria-pressed="selectedMode === 'light'" @click="saveThemeMode('light')">Light</button>
+            <button id="theme-dark" type="button" class="theme-mode" :aria-pressed="selectedMode === 'dark'" @click="saveThemeMode('dark')">Dark</button>
+          </div>
+          <div v-for="group in THEME_GROUPS" :key="group.mode" class="theme-group" role="group" :aria-labelledby="`themes-${group.mode}-label`">
+            <h3 :id="`themes-${group.mode}-label`">{{ group.label }}</h3>
+            <div :id="`themes-${group.mode}`" class="theme-presets">
+              <button v-for="theme in group.themes" :key="theme.color" type="button" class="theme-preset" :aria-pressed="selectedColor === theme.color && selectedMode === theme.mode" @click="saveTheme(theme.color, theme.mode)">
+                <span class="theme-swatch" :style="{ backgroundColor: theme.color, color: theme.mode === 'light' ? '#111111' : '#ffffff' }" aria-hidden="true">{{ selectedColor === theme.color && selectedMode === theme.mode ? '✓' : '' }}</span>
+                {{ theme.name }}
+              </button>
+            </div>
+          </div>
+          <form id="custom-theme-form" @submit.prevent="validCustomColor && saveTheme(validCustomColor)">
+            <label for="theme-hex">Custom hex color</label>
+            <div class="custom-color-row">
+              <button id="theme-picker" type="button" class="color-picker-button" :aria-expanded="pickerOpen" aria-controls="theme-color-controls" aria-label="Choose custom theme color" title="Choose custom theme color" @click="togglePicker"><span :style="{ backgroundColor: validCustomColor || selectedColor }" aria-hidden="true"></span></button>
+              <input id="theme-hex" v-model="customHex" type="text" placeholder="#166552" maxlength="7" spellcheck="false" autocomplete="off" :aria-invalid="customColorError" :aria-describedby="customColorError ? 'theme-hex-help' : undefined">
+              <button type="submit" class="secondary" :disabled="busy || customColorError">Apply</button>
+            </div>
+            <ColorPicker v-if="pickerOpen" v-model="customHex" />
+            <p v-show="customColorError" id="theme-hex-help" class="color-help danger" aria-live="polite">{{ customColorError ? 'Enter a 3- or 6-digit hex color, such as #166552.' : '' }}</p>
+          </form>
+        </fieldset>
+      </AnimatedDetails>
+      <AnimatedDetails id="lock-settings" label="Lock settings">
+        <div class="settings-content">
+          <label for="lock-after">Automatically lock vault</label>
+          <select id="lock-after" :value="lockSetting" :disabled="busy" aria-describedby="lock-help" @change="saveConfig">
+            <option v-for="option in LOCK_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+          </select>
+          <p id="lock-help" class="intro">{{ lockDescription }} <span v-if="lockSetting !== 'restart'">Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. </span>Changes apply immediately.</p>
+          <p class="privacy">Default: On browser restart. You can always select Lock to lock immediately.</p>
+        </div>
+      </AnimatedDetails>
     </section>
 
     <section id="welcome" :hidden="configOpen || view !== 'welcome'">

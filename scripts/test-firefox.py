@@ -64,6 +64,11 @@ class Marionette:
     def click(self, selector):
         self.js("document.querySelector(arguments[0]).click()", [selector])
 
+    def pointer_click(self, selector):
+        found = self.command("WebDriver:FindElement", {"using": "css selector", "value": selector})
+        element_id = found["value"]["element-6066-11e4-a52e-4f735466cecf"]
+        self.command("WebDriver:ElementClick", {"id": element_id})
+
     def fill(self, selector, value):
         self.js("const el = document.querySelector(arguments[0]); el.value = arguments[1]; el.dispatchEvent(new Event('input', {bubbles:true}));", [selector, value])
 
@@ -109,6 +114,7 @@ def main():
             "browser.startup.homepage": "about:blank",
             "browser.startup.page": 0,
             "browser.aboutwelcome.enabled": False,
+            "layout.css.prefers-color-scheme.content-override": 1,
             "datareporting.policy.dataSubmissionEnabled": False,
             "toolkit.telemetry.reportingpolicy.firstRun": False,
         }
@@ -172,13 +178,219 @@ def main():
             url = f"moz-extension://{UUID}/app.html?tab=1"
             client.navigate(url)
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
+            # Exercise the actual toolbar popup with real pointer clicks. A
+            # native color dialog used to dismiss this view before saving.
+            client.command("Marionette:SetContext", {"value": "chrome"})
+            client.js("""
+              const id = 'firefox-aegis_local_extension-browser-action';
+              CustomizableUI.addWidgetToArea(id, CustomizableUI.AREA_NAVBAR);
+            """)
+            client.pointer_click("#firefox-aegis_local_extension-browser-action .unified-extensions-item-action-button")
+            client.wait("document.querySelector('browser[webextension-view-type=popup]')")
+            # Remote popup browsers are top-level contexts, not frames of
+            # browser.xhtml. Target their existing Marionette actor directly.
+            def popup_js(script):
+                return client.js("""
+                  const popup = document.querySelector('browser[webextension-view-type=popup]');
+                  return popup.browsingContext.currentWindowGlobal.getActor('MarionetteCommands')
+                    .executeScript(arguments[0], [], {timeout: 15000});
+                """, [script])
+
+            def popup_wait(expression):
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if popup_js(f"return Boolean({expression})"):
+                        return
+                    time.sleep(0.1)
+                raise AssertionError(f"Popup timed out: {expression}")
+
+            def popup_click(selector):
+                client.js("""
+                  const actor = document.querySelector('browser[webextension-view-type=popup]')
+                    .browsingContext.currentWindowGlobal.getActor('MarionetteCommands');
+                  return actor.findElement('css selector', arguments[0], {}).then(element =>
+                    actor.clickElement(element, {toJSON: () => ({'moz:webdriverClick': true})}));
+                """, [selector])
+
+            popup_wait("document.getElementById('config') && !document.getElementById('config').disabled")
+            popup_click("#config")
+            popup_wait("document.getAnimations().length === 0")
+            popup_wait("innerHeight === document.body.getBoundingClientRect().height")
+            collapsed_height = popup_js("return innerHeight")
+
+            def popup_animation_frames():
+                return popup_js("""
+                  return new Promise(resolve => {
+                    const section = document.getElementById('appearance-settings');
+                    const summary = section.querySelector('summary');
+                    const frames = [];
+                    let start;
+                    function sample(time) {
+                      start ??= time;
+                      frames.push([section.getBoundingClientRect().height - summary.getBoundingClientRect().height, innerHeight,
+                        document.documentElement.scrollWidth, document.documentElement.clientWidth]);
+                      if (time - start < 500) requestAnimationFrame(sample); else resolve(frames);
+                    }
+                    document.querySelector('#appearance-settings > summary').click();
+                    requestAnimationFrame(sample);
+                  });
+                """)
+
+            # Opening and closing must retain the collapsed popup's viewport.
+            for opening in [True, False]:
+                frames = popup_animation_frames()
+                full_height = max(frame[0] for frame in frames)
+                assert any(0 < frame[0] < full_height for frame in frames)
+                direction = 1 if opening else -1
+                assert all(direction * (b[0] - a[0]) >= -1 for a, b in zip(frames, frames[1:])), frames
+                assert all(frame[1] == collapsed_height for frame in frames), frames
+                assert all(frame[2] <= frame[3] + 1 for frame in frames), frames
+            assert popup_js("return !document.getElementById('appearance-settings').open")
+            popup_click("#appearance-settings > summary")
+            popup_wait("document.querySelector('#appearance-settings .settings-panel').getAnimations().length === 0")
+            popup_click("#theme-picker")
+            popup_wait("document.getElementById('theme-hue')")
+            assert popup_js("return document.querySelector('input[type=color]') === null")
+            initial_color = popup_js("return document.getElementById('theme-hex').value")
+            popup_click("#theme-hue")
+            popup_click("#theme-saturation")
+            popup_click("#theme-lightness")
+            picked_color = popup_js("return document.getElementById('theme-hex').value")
+            assert picked_color != initial_color, "Pointer clicks must change the picked color"
+            popup_click("#custom-theme-form button[type=submit]")
+            popup_wait("!document.getElementById('config').disabled && document.getElementById('theme-picker').getAttribute('aria-expanded') === 'false' && document.getElementById('status').hidden")
+            assert client.js("return document.getElementById('customizationui-widget-panel').state") == "open"
+            client.js("document.getElementById('customizationui-widget-panel').hidePopup()")
+            client.command("Marionette:SetContext", {"value": "content"})
+            client.wait(f"document.getElementById('theme-hex').value === {json.dumps(picked_color)}")
+            client.command("WebDriver:Refresh")
+            client.wait("!document.getElementById('config').disabled")
+            assert client.js("return document.getElementById('theme-hex').value") == picked_color
             client.click("#config")
             client.wait("!document.getElementById('settings').hidden")
+            assert client.js("return document.querySelector('#settings h2').textContent") == "Settings"
+            assert client.js("return Array.from(document.querySelectorAll('#settings details'), section => section.open)") == [False, False]
+            client.pointer_click("#appearance-settings > summary")
+            assert client.js("return document.getElementById('appearance-settings').open && !document.getElementById('lock-settings').open")
+            client.wait("document.querySelector('#appearance-settings .settings-panel').getAnimations().length === 0")
+            client.pointer_click("#lock-settings > summary")
+            assert client.js("return document.getElementById('lock-settings').open")
+            client.wait("document.querySelector('#lock-settings .settings-panel').getAnimations().length === 0")
+            # Pause halfway through each direction to verify actual layout
+            # interpolation, rather than just an open/closed attribute change.
+            for opening in [False, True]:
+                sample = client.js("""
+                  const section = document.getElementById('lock-settings');
+                  section.querySelector('summary').click();
+                  const panel = section.querySelector('.settings-panel');
+                  const animation = panel.getAnimations()[0];
+                  animation.pause();
+                  animation.currentTime = animation.effect.getTiming().duration / 2;
+                  return [panel.getBoundingClientRect().height, panel.scrollHeight];
+                """)
+                assert 0 < sample[0] < sample[1], f"Expected an intermediate section height: {sample}"
+                assert client.js("return document.querySelector('#lock-settings .settings-panel').inert") == (not opening)
+                client.js("document.querySelector('#lock-settings .settings-panel').getAnimations()[0].finish()")
+                client.wait(f"document.getElementById('lock-settings').open === {str(opening).lower()} && document.querySelector('#lock-settings .settings-panel').getAnimations().length === 0")
+            client.js("""
+              const summary = document.querySelector('#lock-settings > summary');
+              summary.click(); summary.click(); summary.click();
+            """)
+            client.wait("!document.getElementById('lock-settings').open")
+            # Enabling reduced motion during a transition settles immediately.
+            client.js("document.querySelector('#lock-settings > summary').click(); document.querySelector('#lock-settings .settings-panel').getAnimations()[0].pause()")
+            client.command("Marionette:SetContext", {"value": "chrome"})
+            client.js("Services.prefs.setIntPref('ui.prefersReducedMotion', 1)")
+            client.command("Marionette:SetContext", {"value": "content"})
+            client.wait("matchMedia('(prefers-reduced-motion: reduce)').matches && document.querySelector('#lock-settings .settings-panel').getAnimations().length === 0")
+            client.click("#lock-settings > summary")
+            assert client.js("return !document.getElementById('lock-settings').open && document.querySelector('#lock-settings .settings-panel').getAnimations().length === 0")
+            client.command("Marionette:SetContext", {"value": "chrome"})
+            client.js("Services.prefs.clearUserPref('ui.prefersReducedMotion')")
+            client.command("Marionette:SetContext", {"value": "content"})
+            client.wait("!matchMedia('(prefers-reduced-motion: reduce)').matches")
             assert client.js("return document.getElementById('lock-after').value") == "restart"
             assert client.js("return Array.from(document.getElementById('lock-after').options, option => option.value)") == ["restart", "1", "5", "15", "30", "60"]
+            assert client.js("return document.querySelectorAll('.theme-preset').length") == 12
+            assert client.js("return document.getElementById('theme-light').getAttribute('aria-pressed')") == "true"
+            light_surface = client.js("return getComputedStyle(document.getElementById('theme-hex')).backgroundColor")
+            initial_background = client.js("return getComputedStyle(document.documentElement).backgroundColor")
+            for mode in ["light", "dark"]:
+                assert client.js(f"return document.querySelectorAll('#themes-{mode} .theme-preset').length") == 6
+                for index in range(6):
+                    selector = f"#themes-{mode} .theme-preset:nth-child({index + 1})"
+                    client.click(selector)
+                    client.wait(f"document.querySelector('{selector}').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+                    assert client.js(f"return document.getElementById('theme-{mode}').getAttribute('aria-pressed')") == "true"
+                    assert client.js("return document.querySelectorAll('.theme-preset[aria-pressed=true]').length") == 1
+                    color = client.js("return document.getElementById('theme-hex').value")
+                    expected = f"rgb({int(color[1:3], 16)}, {int(color[3:5], 16)}, {int(color[5:7], 16)})"
+                    assert client.js("return getComputedStyle(document.documentElement).backgroundColor") == expected
+                    assert client.js("return getComputedStyle(document.querySelector('main')).backgroundColor") == expected
+                    assert client.js("return getComputedStyle(document.documentElement).colorScheme") == mode
+                    assert client.js("return getComputedStyle(document.getElementById('theme-hex')).colorScheme") == mode
+                    if index == 0:
+                        client.wait("document.getAnimations().every(animation => animation.playState !== 'running')")
+                        screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+                        (ROOT / "artifacts").mkdir(exist_ok=True)
+                        (ROOT / f"artifacts/themes-{mode}-preview.png").write_bytes(base64.b64decode(screenshot))
+            assert client.js("return getComputedStyle(document.documentElement).backgroundColor") != initial_background
+            client.command("WebDriver:Refresh")
+            client.wait("!document.getElementById('config').disabled")
+            client.click("#config")
+            client.wait("!document.getElementById('settings').hidden")
+            assert client.js("return document.getElementById('theme-dark').getAttribute('aria-pressed')") == "true"
+            assert client.js("return document.querySelector('#themes-dark .theme-preset:last-child').getAttribute('aria-pressed')") == "true"
+            client.click("#appearance-settings > summary")
+            client.click("#theme-light")
+            client.wait("document.getElementById('theme-light').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+            assert client.js("return document.querySelectorAll('.theme-preset[aria-pressed=true]').length") == 0
+            client.fill("#theme-hex", "#xyz")
+            client.wait("document.getElementById('theme-hex').getAttribute('aria-invalid') === 'true'")
+            assert client.js("return document.querySelector('#custom-theme-form button[type=submit]').disabled")
+            client.fill("#theme-hex", "#a3e")
+            client.click("#custom-theme-form button[type=submit]")
+            client.wait("document.getElementById('theme-hex').value === '#aa33ee' && !document.getElementById('config').disabled")
+            client.command("WebDriver:Refresh")
+            client.wait("!document.getElementById('config').disabled")
+            client.click("#config")
+            client.wait("!document.getElementById('settings').hidden")
+            assert client.js("return document.getElementById('theme-hex').value") == "#aa33ee"
+            client.click("#appearance-settings > summary")
+            client.click("#theme-picker")
+            client.wait("document.getElementById('theme-hue')")
+            client.wait("document.getAnimations().every(animation => animation.playState !== 'running')")
             screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
             (ROOT / "artifacts").mkdir(exist_ok=True)
             (ROOT / "artifacts/settings-preview.png").write_bytes(base64.b64decode(screenshot))
+            chosen_background = client.js("return getComputedStyle(document.documentElement).backgroundColor")
+            assert chosen_background == 'rgb(170, 51, 238)'
+            client.command("Marionette:SetContext", {"value": "chrome"})
+            client.js("Services.prefs.setIntPref('layout.css.prefers-color-scheme.content-override', 0)")
+            client.command("Marionette:SetContext", {"value": "content"})
+            client.wait("matchMedia('(prefers-color-scheme: dark)').matches")
+            client.wait("document.getAnimations().every(animation => animation.playState !== 'running')")
+            assert client.js("return getComputedStyle(document.documentElement).backgroundColor") == chosen_background
+            assert client.js("return getComputedStyle(document.querySelector('main')).backgroundColor") == chosen_background
+            client.click("#theme-dark")
+            client.wait("document.getElementById('theme-dark').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+            client.wait("document.getAnimations().every(animation => animation.playState !== 'running')")
+            dark_surface = client.js("return getComputedStyle(document.getElementById('theme-hex')).backgroundColor")
+            assert dark_surface != light_surface
+            assert client.js("return getComputedStyle(document.querySelector('.theme-preset')).backgroundColor") == dark_surface
+            assert client.js("return getComputedStyle(document.getElementById('theme-hex')).colorScheme") == "dark"
+            assert client.js("return getComputedStyle(document.documentElement).backgroundColor") == chosen_background
+            screenshot = client.command("WebDriver:TakeScreenshot", {"full": True})["value"]
+            (ROOT / "artifacts/settings-dark-preview.png").write_bytes(base64.b64decode(screenshot))
+            client.command("Marionette:SetContext", {"value": "chrome"})
+            client.js("Services.prefs.setIntPref('layout.css.prefers-color-scheme.content-override', 1)")
+            client.command("Marionette:SetContext", {"value": "content"})
+            client.wait("!matchMedia('(prefers-color-scheme: dark)').matches")
+            assert client.js("return getComputedStyle(document.getElementById('theme-hex')).backgroundColor") == dark_surface
+            client.click("#theme-light")
+            client.wait("document.getElementById('theme-light').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+            assert client.js("return getComputedStyle(document.getElementById('theme-hex')).colorScheme") == "light"
+            client.click("#theme-picker")
             client.click("#config")
             client.upload(ROOT / "tests/fixtures/demo.json")
             client.fill("#import-secret", "test password")
@@ -260,6 +472,42 @@ def main():
             client.command("WebDriver:SwitchToWindow", {"handle": second})
             client.navigate(url)
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            # Changing appearance syncs to other views without disturbing the
+            # unlocked session or its deadline.
+            theme_session = client.session_snapshot()
+            client.click("#config")
+            client.click("#appearance-settings > summary")
+            client.click("#theme-picker")
+            client.wait("document.getElementById('theme-hue')")
+            assert client.js("return document.querySelector('input[type=color]') === null")
+            client.fill("#theme-hue", "240")
+            client.fill("#theme-saturation", "100")
+            client.fill("#theme-lightness", "50")
+            client.wait("document.getElementById('theme-hex').value === '#0000ff'")
+            # Keep the chosen hue/saturation while crossing black and white.
+            client.fill("#theme-lightness", "0")
+            client.wait("document.getElementById('theme-hex').value === '#000000'")
+            client.fill("#theme-lightness", "100")
+            client.wait("document.getElementById('theme-hex').value === '#ffffff'")
+            client.fill("#theme-lightness", "50")
+            client.wait("document.getElementById('theme-hex').value === '#0000ff'")
+            client.fill("#theme-hex", "#2563eb")
+            client.wait("Math.round(document.getElementById('theme-hue').value) === 221")
+            client.click("#custom-theme-form button[type=submit]")
+            client.wait("document.getElementById('theme-hex').value === '#2563eb' && !document.getElementById('config').disabled")
+            client.click("#theme-dark")
+            client.wait("document.getElementById('theme-dark').getAttribute('aria-pressed') === 'true' && !document.getElementById('config').disabled")
+            client.click("#config")
+            assert client.session_snapshot() == theme_session
+            dark_card = client.js("return getComputedStyle(document.querySelector('.entry')).backgroundColor")
+            assert client.js("return getComputedStyle(document.getElementById('search')).backgroundColor") == dark_card
+            assert client.js("return getComputedStyle(document.getElementById('remove-dialog')).backgroundColor") == dark_card
+            assert client.js("return getComputedStyle(document.querySelector('.entry')).colorScheme") == "dark"
+            client.command("WebDriver:SwitchToWindow", {"handle": first})
+            client.wait("document.getElementById('theme-hex').value === '#2563eb' && document.getElementById('theme-dark').getAttribute('aria-pressed') === 'true'")
+            assert client.js("return getComputedStyle(document.querySelector('.entry')).backgroundColor") == dark_card
+            assert client.js("return document.querySelectorAll('.entry').length") == 3
+            client.command("WebDriver:SwitchToWindow", {"handle": second})
             client.click("#lock")
             client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
             client.command("WebDriver:SwitchToWindow", {"handle": first})
@@ -274,6 +522,7 @@ def main():
             # the disposable test hook moves the unlock timestamp near expiry.
             client.clock(None)
             client.click("#config")
+            client.click("#lock-settings > summary")
             client.js("const select = document.getElementById('lock-after'); select.value = '1'; select.dispatchEvent(new Event('change', {bubbles:true}));")
             client.wait("document.getElementById('lock-after').value === '1' && !document.getElementById('lock-after').disabled")
             client.click("#config")
@@ -335,6 +584,9 @@ def main():
             client.navigate(url)
             client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
             assert client.js("return document.querySelectorAll('.entry').length") == 0
+            assert client.js("return document.getElementById('theme-hex').value") == "#2563eb"
+            assert client.js("return document.getElementById('theme-dark').getAttribute('aria-pressed')") == "true"
+            assert client.js("return getComputedStyle(document.getElementById('unlock-password')).backgroundColor") == dark_card
             client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
@@ -343,7 +595,7 @@ def main():
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
             client.command("WebDriver:Refresh")
             client.wait("!document.getElementById('welcome').hidden")
-            print("PASS: Firefox imports, codes, copy and filters; settings persist; reopening resets the shared lock timer; timed lock syncs across tabs and works with all views closed; restart policy and manual lock work; real browser restart requires the password; vault removal persists.")
+            print("PASS: Firefox imports, codes, copy and filters; presets and exact hex backgrounds, validation, readable palettes and theme sync work; settings and theme survive restart; reopening resets the shared lock timer; timed lock syncs across tabs and works with all views closed; restart policy and manual lock work; real browser restart requires the password; vault removal persists.")
             client.command("WebDriver:DeleteSession")
         finally:
             process.terminate()

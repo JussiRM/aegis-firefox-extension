@@ -1,16 +1,63 @@
 /* Edit src/app.scss; npm run build generates extension/app.css. */
 :root {
   color-scheme: light dark;
-  --bg: #f5f7f5;
-  --surface: #fff;
-  --text: #172e2a;
-  --muted: #697c76;
-  --line: #e0e8e2;
-  --green: #166552;
-  --pale: #e5f2e9;
-  --error: #9d3630;
+  accent-color: var(--accent);
   font: 14px/1.5 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg);
+  color: var(--text);
+}
+
+input,
+select,
+dialog,
+.entry,
+.group-badge,
+.theme-preset,
+.theme-mode,
+.secondary,
+.inline-color-picker,
+.color-picker-button,
+.header-actions .icon-button {
+  --text: var(--surface-text);
+  --muted: var(--surface-muted);
+  --accent: var(--surface-accent);
+  --on-accent: var(--surface-on-accent);
+  --accent-hover: var(--surface-accent-hover);
+  --focus: var(--surface-focus);
+  --line: var(--surface-line);
+  --error: var(--surface-error);
+  --error-bg: var(--surface-error-bg);
+  --warning: var(--surface-warning);
+  color-scheme: var(--surface-scheme);
+  color: var(--text);
+}
+
+.count,
+.avatar,
+.hero-icon,
+.status:not(.error),
+.warning,
+.icon-button:hover,
+.header-actions .icon-button:hover,
+.header-actions .icon-button[aria-pressed=true],
+.group-badge:hover,
+.group-badge[aria-pressed=true],
+.theme-preset:hover,
+.theme-preset[aria-pressed=true],
+.theme-mode:hover,
+.theme-mode[aria-pressed=true],
+.code:hover {
+  --text: var(--pale-text);
+  --muted: var(--pale-muted);
+  --accent: var(--pale-accent);
+  --on-accent: var(--pale-on-accent);
+  --accent-hover: var(--pale-accent-hover);
+  --focus: var(--pale-focus);
+  --line: var(--pale-line);
+  --error: var(--pale-error);
+  --error-bg: var(--pale-error-bg);
+  --warning: var(--pale-warning);
+  color-scheme: var(--pale-scheme);
   color: var(--text);
 }
 
@@ -82,11 +129,31 @@ button:disabled {
   opacity: 0.6;
 }
 
+fieldset:disabled button {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.brand-icon {
+  flex-shrink: 0;
+}
+
 button:focus-visible,
 input:focus-visible,
 summary:focus-visible {
-  outline: 3px solid #5dbb94;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
+}
+
+#search:focus-visible,
+#theme-hex:focus-visible {
+  outline-width: 2px;
+  outline-offset: 0;
 }
 
 button {
@@ -109,7 +176,7 @@ button {
   font-size: 10px;
   letter-spacing: 1.8px;
   font-weight: 750;
-  color: var(--green);
+  color: var(--accent);
   margin: 0;
 }
 
@@ -120,14 +187,14 @@ button {
 }
 
 .primary {
-  background: var(--green);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   border-radius: 10px;
   font-weight: 650;
   padding: 12px 18px;
 }
 .primary:hover {
-  filter: brightness(1.1);
+  background: var(--accent-hover);
 }
 
 .secondary {
@@ -150,7 +217,7 @@ button {
 }
 
 .privacy span {
-  color: var(--green);
+  color: var(--accent);
   margin-right: 5px;
 }
 
@@ -162,7 +229,7 @@ button {
 .hero-icon {
   font-size: 52px;
   line-height: 1.2;
-  color: var(--green);
+  color: var(--accent);
   background: var(--pale);
   width: 88px;
   height: 88px;
@@ -219,6 +286,11 @@ input {
   color: var(--text);
 }
 
+input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
 form > .primary {
   width: 100%;
   margin-top: 20px;
@@ -241,7 +313,7 @@ form > .primary {
 
 .status.error {
   color: var(--error);
-  background: #fbe8e4;
+  background: var(--error-bg);
 }
 
 #vault {
@@ -266,7 +338,7 @@ form > .primary {
   border-radius: 6px;
   padding: 3px 7px;
   letter-spacing: 0;
-  color: var(--green);
+  color: var(--accent);
 }
 
 .search-label {
@@ -298,13 +370,13 @@ form > .primary {
 
 .group-badge:hover {
   background: var(--pale);
-  color: var(--green);
+  color: var(--accent);
 }
 
 .group-badge[aria-pressed=true] {
   background: var(--pale);
-  border-color: var(--green);
-  color: var(--green);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .list-heading {
@@ -355,7 +427,7 @@ form > .primary {
   height: 33px;
   border-radius: 10px;
   background: var(--pale);
-  color: var(--green);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 700;
   display: grid;
@@ -393,7 +465,7 @@ form > .primary {
 .code {
   font: 600 22px/1.2 ui-monospace, SFMono-Regular, Consolas, monospace;
   letter-spacing: 1px;
-  color: var(--green);
+  color: var(--accent);
   background: transparent;
   padding: 2px 0;
   text-align: right;
@@ -406,7 +478,7 @@ form > .primary {
 }
 
 .expiring .code {
-  color: #b36b16;
+  color: var(--warning);
 }
 
 progress {
@@ -424,7 +496,7 @@ progress {
 }
 
 progress::-moz-progress-bar {
-  background: var(--green);
+  background: var(--accent);
 }
 
 progress::-webkit-progress-bar {
@@ -432,11 +504,11 @@ progress::-webkit-progress-bar {
 }
 
 progress::-webkit-progress-value {
-  background: var(--green);
+  background: var(--accent);
 }
 
 .expiring progress::-moz-progress-bar {
-  background: #b36b16;
+  background: var(--warning);
 }
 
 .group-tags {
@@ -494,7 +566,7 @@ footer {
   display: inline-block;
   width: 5px;
   height: 5px;
-  background: #399776;
+  background: var(--accent);
   border-radius: 50%;
   margin-right: 7px;
   vertical-align: 1px;
@@ -525,7 +597,7 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgba(16, 44, 38, 0.5019607843);
+  background: var(--backdrop);
 }
 
 dialog p {
@@ -534,7 +606,11 @@ dialog p {
 }
 
 .destructive {
-  background: var(--error);
+  background: var(--destructive);
+  color: var(--on-destructive);
+}
+.destructive:hover {
+  background: var(--destructive);
 }
 
 [hidden] {
@@ -543,41 +619,31 @@ dialog p {
 
 body.full-page main {
   margin: 40px auto;
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 20px;
-  box-shadow: 0 14px 50px rgba(24, 60, 40, 0.062745098);
+  box-shadow: 0 14px 50px var(--shadow);
 }
 
 body.full-page #expand {
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #101a18;
-    --surface: #192723;
-    --text: #e1eee8;
-    --muted: #9aaea5;
-    --line: #30453c;
-    --green: #91d9b9;
-    --pale: #233f32;
-    --error: #f39b8c;
-  }
-  .primary {
-    background: #28775c;
-    color: #fff;
-  }
-  .status.error {
-    background: #462c27;
-  }
-  .destructive {
-    background: #9d3630;
-  }
-  .expiring .code {
-    color: #e4b36e;
-  }
+/* Keep the settings popup the same size with either section open or closed. */
+body:not(.full-page):has(#settings:not([hidden])) {
+  height: 600px;
+  overflow-y: scroll;
 }
+body:not(.full-page):has(#settings:not([hidden])) main {
+  max-width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+body:not(.full-page):has(#settings:not([hidden])) footer {
+  margin-top: auto;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   button {
     transition: background 0.15s, filter 0.15s;
@@ -599,7 +665,7 @@ body.full-page #expand {
 .header-actions .icon-button:hover,
 .header-actions .icon-button[aria-pressed=true] {
   background: var(--pale);
-  color: var(--green);
+  color: var(--accent);
 }
 
 select {
@@ -613,8 +679,181 @@ select {
 }
 
 select:focus-visible {
-  outline: 3px solid #5dbb94;
+  outline: 3px solid var(--focus);
   outline-offset: 3px;
+}
+
+.settings-section > summary {
+  padding: 16px 0;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.settings-content {
+  padding-bottom: 20px;
+}
+
+.settings-panel {
+  display: flow-root;
+}
+
+.theme-settings {
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 20px;
+  border: 0;
+}
+
+.theme-group {
+  margin-top: 16px;
+}
+.theme-group h3 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.theme-presets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-modes {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.theme-mode {
+  flex: 1;
+  padding: 7px 12px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.theme-mode:hover, .theme-mode[aria-pressed=true] {
+  background: var(--pale);
+  color: var(--accent);
+}
+.theme-mode[aria-pressed=true] {
+  border-color: var(--accent);
+}
+
+.theme-preset {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px;
+  font-size: 11px;
+}
+.theme-preset:hover, .theme-preset[aria-pressed=true] {
+  background: var(--pale);
+  border-color: var(--accent);
+}
+
+.theme-swatch {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.custom-color-row {
+  display: grid;
+  grid-template-columns: 43px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+}
+.custom-color-row input[type=text] {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.color-picker-button {
+  display: grid;
+  height: 44px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+.color-picker-button span {
+  border-radius: 4px;
+}
+.color-picker-button[aria-expanded=true] {
+  border-color: var(--accent);
+}
+
+.inline-color-picker {
+  min-width: 0;
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.inline-color-picker legend {
+  font-size: 12px;
+}
+.inline-color-picker label {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.inline-color-picker output {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.inline-color-picker input[type=range] {
+  appearance: none;
+  display: block;
+  padding: 0;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.inline-color-picker input[type=range]::-moz-range-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--picker-track);
+}
+.inline-color-picker input[type=range]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  background: var(--surface);
+}
+.inline-color-picker .hue-range {
+  --picker-track: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+.color-help {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.color-help.danger {
+  color: var(--error);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -622,7 +861,7 @@ select:focus-visible {
     transition: background-color 180ms ease, color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
   }
   .group-badge[aria-pressed=true] {
-    box-shadow: 0 2px 7px rgba(22, 101, 82, 0.0941176471);
+    box-shadow: 0 2px 7px var(--shadow);
   }
   .group-badge:active:not(:disabled) {
     transform: scale(0.96);
@@ -683,7 +922,7 @@ select:focus-visible {
   initial-value: 100%;
 }
 .timer-fill {
-  --timer-color: var(--green);
+  --timer-color: var(--accent);
   display: block;
   width: 100%;
   height: 100%;
@@ -692,7 +931,7 @@ select:focus-visible {
 }
 
 .expiring .timer-fill {
-  --timer-color: #b36b16;
+  --timer-color: var(--warning);
 }
 
 @keyframes timer-countdown {
@@ -715,9 +954,9 @@ select:focus-visible {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  border: 1px solid var(--green);
+  border: 1px solid var(--accent);
   border-radius: inherit;
-  box-shadow: inset 0 0 5px color-mix(in srgb, var(--green) 25%, transparent);
+  box-shadow: inset 0 0 5px color-mix(in srgb, var(--accent) 25%, transparent);
   opacity: 0;
   animation: copy-border-fade 650ms ease-out both;
 }

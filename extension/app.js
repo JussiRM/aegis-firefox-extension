@@ -2308,6 +2308,40 @@ function renderList(source, renderItem, cache, index) {
 	if (cache) cache[index] = ret;
 	return ret;
 }
+function renderSlot(slots, name, props, fallback, noSlotted, branchKey) {
+	if (props == null) props = {};
+	if (currentRenderingInstance.ce || currentRenderingInstance.parent && isAsyncWrapper(currentRenderingInstance.parent) && currentRenderingInstance.parent.ce) {
+		const slotProps = branchKey != null && props.key == null ? extend({}, props, { key: branchKey }) : props;
+		const hasProps = Object.keys(slotProps).length > 0;
+		if (name !== "default") slotProps.name = name;
+		return openBlock(), createBlock(Fragment, null, [createVNode("slot", slotProps, fallback && fallback())], hasProps ? -2 : 64);
+	}
+	let slot = slots[name];
+	if (slot && slot._c) slot._d = false;
+	const prevStackSize = blockStack.length;
+	openBlock();
+	let rendered;
+	try {
+		const validSlotContent = slot && ensureValidVNode(slot(props));
+		const slotKey = props.key || branchKey || validSlotContent && validSlotContent.key;
+		rendered = createBlock(Fragment, { key: (slotKey && !isSymbol(slotKey) ? slotKey : `_${name}`) + (!validSlotContent && fallback ? "_fb" : "") }, validSlotContent || (fallback ? fallback() : []), validSlotContent && slots._ === 1 ? 64 : -2);
+	} catch (err) {
+		for (let i = blockStack.length; i > prevStackSize; i--) closeBlock();
+		throw err;
+	} finally {
+		if (slot && slot._c) slot._d = true;
+	}
+	if (!noSlotted && rendered.scopeId) rendered.slotScopeIds = [rendered.scopeId + "-s"];
+	return rendered;
+}
+function ensureValidVNode(vnodes) {
+	return vnodes.some((child) => {
+		if (!isVNode(child)) return true;
+		if (child.type === Comment) return false;
+		if (child.type === Fragment && !ensureValidVNode(child.children)) return false;
+		return true;
+	}) ? vnodes : null;
+}
 var getPublicInstance = (i) => {
 	if (!i) return null;
 	if (isStatefulComponent(i)) return getComponentPublicInstance(i);
@@ -4013,6 +4047,11 @@ function cloneVNode(vnode, extraProps, mergeRef = false, cloneTransition = false
 function createTextVNode(text = " ", flag = 0) {
 	return createVNode(Text, null, text, flag);
 }
+function createStaticVNode(content, numberOfNodes) {
+	const vnode = createVNode(Static, null, content);
+	vnode.staticCount = numberOfNodes;
+	return vnode;
+}
 function createCommentVNode(text = "", asBlock = false) {
 	return asBlock ? (openBlock(), createBlock(Comment, null, text)) : createVNode(Comment, null, text);
 }
@@ -4581,6 +4620,36 @@ function patchClass(el, value, isSVG) {
 }
 var vShowOriginalDisplay = /* @__PURE__ */ Symbol("_vod");
 var vShowHidden = /* @__PURE__ */ Symbol("_vsh");
+var vShow = {
+	name: "show",
+	beforeMount(el, { value }, { transition }) {
+		el[vShowOriginalDisplay] = el.style.display === "none" ? "" : el.style.display;
+		if (transition && value) transition.beforeEnter(el);
+		else setDisplay(el, value);
+	},
+	mounted(el, { value }, { transition }) {
+		if (transition && value) transition.enter(el);
+	},
+	updated(el, { value, oldValue }, { transition }) {
+		if (!value === !oldValue) return;
+		if (transition) {
+			if (value) {
+				transition.beforeEnter(el);
+				setDisplay(el, true);
+				transition.enter(el);
+			} else transition.leave(el, () => {
+				setDisplay(el, false);
+			});
+		} else setDisplay(el, value);
+	},
+	beforeUnmount(el, { value }) {
+		setDisplay(el, value);
+	}
+};
+function setDisplay(el, value) {
+	el.style.display = value ? el[vShowOriginalDisplay] : "none";
+	el[vShowHidden] = !value;
+}
 var CSS_VAR_TEXT = /* @__PURE__ */ Symbol("");
 var displayRE = /(?:^|;)\s*display\s*:/;
 function patchStyle(el, prev, next) {
@@ -6155,20 +6224,200 @@ function createSessionStore(storage, readSetting = async () => "restart", now = 
 		}
 	};
 }
+// src/theme.ts
+var THEME_SETTING_KEY = "themeColor";
+var THEME_MODE_SETTING_KEY = "themeMode";
+function themeMode(value) {
+	return value === "dark" ? "dark" : "light";
+}
+var THEMES = [
+	{
+		name: "Mint",
+		color: "#e8f3ed",
+		mode: "light"
+	},
+	{
+		name: "Sky",
+		color: "#e8f0fc",
+		mode: "light"
+	},
+	{
+		name: "Lavender",
+		color: "#f0eafb",
+		mode: "light"
+	},
+	{
+		name: "Blush",
+		color: "#fbecef",
+		mode: "light"
+	},
+	{
+		name: "Sand",
+		color: "#f7efdf",
+		mode: "light"
+	},
+	{
+		name: "Mist",
+		color: "#edf0f3",
+		mode: "light"
+	},
+	{
+		name: "Forest",
+		color: "#102820",
+		mode: "dark"
+	},
+	{
+		name: "Midnight",
+		color: "#111f36",
+		mode: "dark"
+	},
+	{
+		name: "Plum",
+		color: "#241a35",
+		mode: "dark"
+	},
+	{
+		name: "Wine",
+		color: "#321c26",
+		mode: "dark"
+	},
+	{
+		name: "Bronze",
+		color: "#302519",
+		mode: "dark"
+	},
+	{
+		name: "Graphite",
+		color: "#1d232b",
+		mode: "dark"
+	}
+];
+var THEME_GROUPS = ["light", "dark"].map((mode) => ({
+	mode,
+	label: mode === "light" ? "Light themes" : "Dark themes",
+	themes: THEMES.filter((theme) => theme.mode === mode)
+}));
+var DEFAULT_THEME = THEMES[0].color;
+function normalizeHex(value) {
+	if (typeof value !== "string") return null;
+	const hex = value.trim().replace(/^#/, "");
+	if (/^[\da-f]{3}$/i.test(hex)) return `#${[...hex].map((char) => char + char).join("").toLowerCase()}`;
+	return /^[\da-f]{6}$/i.test(hex) ? `#${hex.toLowerCase()}` : null;
+}
+function themeColor(value) {
+	return normalizeHex(value) ?? DEFAULT_THEME;
+}
+function rgb(hex) {
+	return [
+		1,
+		3,
+		5
+	].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255);
+}
+function hexToHsl(hex) {
+	const [r, g, b] = rgb(hex), max = Math.max(r, g, b), min = Math.min(r, g, b);
+	const delta = max - min, lightness = (max + min) / 2;
+	if (!delta) return [
+		0,
+		0,
+		lightness
+	];
+	return [
+		(max === r ? ((g - b) / delta + 6) % 6 : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) * 60,
+		delta / (1 - Math.abs(2 * lightness - 1)),
+		lightness
+	];
+}
+function hslToHex(hue, saturation, lightness) {
+	const a = saturation * Math.min(lightness, 1 - lightness);
+	return `#${[
+		0,
+		8,
+		4
+	].map((n) => {
+		const k = (n + hue / 30) % 12;
+		const channel = lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+		return Math.round(channel * 255).toString(16).padStart(2, "0");
+	}).join("")}`;
+}
+function luminance(hex) {
+	const channels = rgb(hex).map((value) => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4);
+	return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722;
+}
+function contrastRatio(first, second) {
+	const a = luminance(first), b = luminance(second);
+	return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+}
+function createPalette(seed, mode = "light") {
+	const bg = themeColor(seed);
+	const [hue, saturation] = hexToHsl(bg);
+	const tint = (level, strength = 1) => hslToHex(hue, Math.min(saturation * strength, .85), level);
+	const lighten = (amount) => `#${rgb(bg).map((channel) => Math.round((channel + (1 - channel) * amount) * 255).toString(16).padStart(2, "0")).join("")}`;
+	const surface = mode === "dark" ? tint(.07, .25) : lighten(.94);
+	const pale = mode === "dark" ? tint(.13, .35) : lighten(.86);
+	const errorHue = 5 + Math.sin(hue * Math.PI / 180) * 5;
+	const warningHue = 38 + Math.sin(hue * Math.PI / 180) * 6;
+	function foregrounds(background) {
+		const dark = contrastRatio(background, "#ffffff") >= contrastRatio(background, "#000000");
+		const readable = (color, backgrounds = [background], ratio = 4.5) => {
+			const [h, s, l] = hexToHsl(color);
+			for (let step = 0; step <= 100; step++) {
+				const candidate = hslToHex(h, s, l + ((dark ? 1 : 0) - l) * step / 100);
+				if (backgrounds.every((value) => contrastRatio(candidate, value) >= ratio)) return candidate;
+			}
+			return dark ? "#ffffff" : "#000000";
+		};
+		const accent = readable(tint(dark ? .8 : .24));
+		const onAccent = contrastRatio(accent, "#ffffff") >= 4.5 ? "#ffffff" : "#000000";
+		const [accentHue, accentSaturation, accentLightness] = hexToHsl(accent);
+		const errorBg = hslToHex(errorHue, .3 + saturation * .1, dark ? .12 : .95);
+		return {
+			scheme: dark ? "dark" : "light",
+			text: readable(tint(dark ? .96 : .08, .25)),
+			muted: readable(tint(dark ? .78 : .3, .22)),
+			accent,
+			"on-accent": onAccent,
+			"accent-hover": hslToHex(accentHue, accentSaturation, onAccent === "#ffffff" ? accentLightness * .85 : accentLightness + (1 - accentLightness) * .15),
+			focus: readable(tint(dark ? .82 : .28), [background], 3),
+			line: tint(dark ? .64 : .84, dark ? .25 : .18),
+			error: readable(hslToHex(errorHue, .55 + saturation * .15, dark ? .85 : .26), [background, errorBg]),
+			"error-bg": errorBg,
+			warning: readable(hslToHex(warningHue, .6 + saturation * .15, dark ? .82 : .26))
+		};
+	}
+	const prefix = (name, colors) => Object.fromEntries(Object.entries(colors).map(([token, value]) => [`${name}-${token}`, value]));
+	return {
+		bg,
+		surface,
+		pale,
+		...foregrounds(bg),
+		...prefix("surface", foregrounds(surface)),
+		...prefix("pale", foregrounds(pale)),
+		destructive: hslToHex(errorHue, .6 + saturation * .1, .34),
+		"on-destructive": "#ffffff",
+		backdrop: `${tint(.1, .3)}80`,
+		shadow: `${tint(.1, .35)}30`
+	};
+}
+function applyTheme(seed, mode = "light", root = document.documentElement) {
+	const { scheme, ...colors } = createPalette(seed, mode);
+	root.style.setProperty("color-scheme", scheme);
+	for (const [name, value] of Object.entries(colors)) root.style.setProperty(`--${name}`, value);
+}
 // src/components/AccountCard.vue?vue&type=script&setup=true&lang.ts
-var _hoisted_1$1 = { class: "avatar" };
-var _hoisted_2$1 = { class: "entry-main" };
-var _hoisted_3$1 = { class: "service" };
-var _hoisted_4$1 = {
+var _hoisted_1$3 = { class: "avatar" };
+var _hoisted_2$3 = { class: "entry-main" };
+var _hoisted_3$2 = { class: "service" };
+var _hoisted_4$2 = {
 	key: 0,
 	class: "account"
 };
-var _hoisted_5$1 = {
+var _hoisted_5$2 = {
 	key: 1,
 	class: "group-tags"
 };
-var _hoisted_6$1 = { class: "code-row" };
-var _hoisted_7$1 = ["disabled", "aria-label"];
+var _hoisted_6$2 = { class: "code-row" };
+var _hoisted_7$2 = ["disabled", "aria-label"];
 var _hoisted_8$1 = { class: "timer-bar" };
 var _hoisted_9$1 = [
 	"max",
@@ -6242,20 +6491,20 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 					class: "copy-shine",
 					"aria-hidden": "true"
 				})) : createCommentVNode("", true),
-				createBaseVNode("div", _hoisted_1$1, toDisplayString(title.value.slice(0, 1).toUpperCase()), 1),
-				createBaseVNode("div", _hoisted_2$1, [
-					createBaseVNode("div", _hoisted_3$1, toDisplayString(__props.entry.favorite ? "★ " : "") + toDisplayString(title.value), 1),
-					__props.entry.name && __props.entry.issuer ? (openBlock(), createElementBlock("div", _hoisted_4$1, toDisplayString(__props.entry.name), 1)) : createCommentVNode("", true),
-					__props.entry.groups.length ? (openBlock(), createElementBlock("div", _hoisted_5$1, toDisplayString(__props.entry.groups.map((id) => __props.groupNames.get(id)).join(" · ")), 1)) : createCommentVNode("", true)
+				createBaseVNode("div", _hoisted_1$3, toDisplayString(title.value.slice(0, 1).toUpperCase()), 1),
+				createBaseVNode("div", _hoisted_2$3, [
+					createBaseVNode("div", _hoisted_3$2, toDisplayString(__props.entry.favorite ? "★ " : "") + toDisplayString(title.value), 1),
+					__props.entry.name && __props.entry.issuer ? (openBlock(), createElementBlock("div", _hoisted_4$2, toDisplayString(__props.entry.name), 1)) : createCommentVNode("", true),
+					__props.entry.groups.length ? (openBlock(), createElementBlock("div", _hoisted_5$2, toDisplayString(__props.entry.groups.map((id) => __props.groupNames.get(id)).join(" · ")), 1)) : createCommentVNode("", true)
 				]),
-				createBaseVNode("div", _hoisted_6$1, [createBaseVNode("button", {
+				createBaseVNode("div", _hoisted_6$2, [createBaseVNode("button", {
 					class: "code",
 					type: "button",
 					title: "Copy current code",
 					disabled: __props.busy || unavailable.value,
 					"aria-label": `Copy code for ${title.value}${__props.entry.issuer && __props.entry.name ? `, ${__props.entry.name}` : ""}`,
 					onClick: copy
-				}, toDisplayString(code.value), 9, _hoisted_7$1), createBaseVNode("div", _hoisted_8$1, [createBaseVNode("progress", {
+				}, toDisplayString(code.value), 9, _hoisted_7$2), createBaseVNode("div", _hoisted_8$1, [createBaseVNode("progress", {
 					max: __props.entry.token.period,
 					value: remaining.value,
 					"aria-label": `Time remaining for ${title.value}`
@@ -6272,6 +6521,156 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 		};
 	}
 });
+// src/components/ColorPicker.vue?vue&type=script&setup=true&lang.ts
+var _hoisted_1$2 = {
+	id: "theme-color-controls",
+	class: "inline-color-picker"
+};
+var _hoisted_2$2 = { for: "theme-hue" };
+var _hoisted_3$1 = ["value", "aria-valuetext"];
+var _hoisted_4$1 = { for: "theme-saturation" };
+var _hoisted_5$1 = ["value", "aria-valuetext"];
+var _hoisted_6$1 = { for: "theme-lightness" };
+var _hoisted_7$1 = ["value", "aria-valuetext"];
+// src/components/ColorPicker.vue
+var ColorPicker_default = /* @__PURE__ */ defineComponent({
+	__name: "ColorPicker",
+	props: { modelValue: {} },
+	emits: ["update:modelValue"],
+	setup(__props, { emit: __emit }) {
+		const props = __props;
+		const emit = __emit;
+		const hue = /* @__PURE__ */ ref(0), saturation = /* @__PURE__ */ ref(1), lightness = /* @__PURE__ */ ref(.5);
+		const color = computed(() => hslToHex(hue.value, saturation.value, lightness.value));
+		watch(() => props.modelValue, (value) => {
+			const normalized = normalizeHex(value);
+			if (!normalized || normalized === color.value) return;
+			[hue.value, saturation.value, lightness.value] = hexToHsl(normalized);
+		}, { immediate: true });
+		function update(channel, event) {
+			const value = Number(event.target.value);
+			if (channel === "hue") hue.value = value;
+			else if (channel === "saturation") saturation.value = value / 100;
+			else lightness.value = value / 100;
+			emit("update:modelValue", color.value);
+		}
+		return (_ctx, _cache) => {
+			return openBlock(), createElementBlock("fieldset", _hoisted_1$2, [
+				_cache[6] || (_cache[6] = createBaseVNode("legend", null, "Color picker", -1)),
+				createBaseVNode("label", _hoisted_2$2, [_cache[3] || (_cache[3] = createTextVNode("Hue ", -1)), createBaseVNode("output", null, toDisplayString(Math.round(hue.value)) + "°", 1)]),
+				createBaseVNode("input", {
+					id: "theme-hue",
+					type: "range",
+					min: "0",
+					max: "360",
+					step: "1",
+					value: hue.value,
+					"aria-valuetext": `${Math.round(hue.value)} degrees`,
+					onInput: _cache[0] || (_cache[0] = ($event) => update("hue", $event)),
+					class: "hue-range"
+				}, null, 40, _hoisted_3$1),
+				createBaseVNode("label", _hoisted_4$1, [_cache[4] || (_cache[4] = createTextVNode("Saturation ", -1)), createBaseVNode("output", null, toDisplayString(Math.round(saturation.value * 100)) + "%", 1)]),
+				createBaseVNode("input", {
+					id: "theme-saturation",
+					type: "range",
+					min: "0",
+					max: "100",
+					step: "1",
+					value: saturation.value * 100,
+					"aria-valuetext": `${Math.round(saturation.value * 100)} percent`,
+					style: normalizeStyle({ "--picker-track": `linear-gradient(to right, hsl(${hue.value} 0% ${lightness.value * 100}%), hsl(${hue.value} 100% ${lightness.value * 100}%))` }),
+					onInput: _cache[1] || (_cache[1] = ($event) => update("saturation", $event))
+				}, null, 44, _hoisted_5$1),
+				createBaseVNode("label", _hoisted_6$1, [_cache[5] || (_cache[5] = createTextVNode("Lightness ", -1)), createBaseVNode("output", null, toDisplayString(Math.round(lightness.value * 100)) + "%", 1)]),
+				createBaseVNode("input", {
+					id: "theme-lightness",
+					type: "range",
+					min: "0",
+					max: "100",
+					step: "1",
+					value: lightness.value * 100,
+					"aria-valuetext": `${Math.round(lightness.value * 100)} percent`,
+					style: normalizeStyle({ "--picker-track": `linear-gradient(to right, #000, hsl(${hue.value} ${saturation.value * 100}% 50%), #fff)` }),
+					onInput: _cache[2] || (_cache[2] = ($event) => update("lightness", $event))
+				}, null, 44, _hoisted_7$1),
+				_cache[7] || (_cache[7] = createBaseVNode("p", { class: "color-help" }, "Adjust the sliders, then select Apply to save.", -1))
+			]);
+		};
+	}
+});
+// src/components/AnimatedDetails.vue?vue&type=script&setup=true&lang.ts
+var _hoisted_1$1 = ["id", "aria-expanded"];
+var _hoisted_2$1 = ["inert"];
+// src/components/AnimatedDetails.vue
+var AnimatedDetails_default = /* @__PURE__ */ defineComponent({
+	__name: "AnimatedDetails",
+	props: {
+		label: {},
+		summaryId: {}
+	},
+	setup(__props) {
+		const details = /* @__PURE__ */ ref(), content = /* @__PURE__ */ ref();
+		const expanded = /* @__PURE__ */ ref(false);
+		const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+		let animation;
+		function cancelAnimations() {
+			if (animation) animation.onfinish = null;
+			animation?.cancel();
+			animation = void 0;
+		}
+		function settle() {
+			cancelAnimations();
+			if (details.value) details.value.open = expanded.value;
+		}
+		function toggle() {
+			const section = details.value, panel = content.value;
+			if (!section || !panel) return;
+			const previousHeight = section.open ? panel.getBoundingClientRect().height : 0;
+			expanded.value = !expanded.value;
+			cancelAnimations();
+			if (motionPreference.matches) {
+				settle();
+				return;
+			}
+			panel.style.height = `${previousHeight}px`;
+			section.open = true;
+			const nextHeight = expanded.value ? panel.scrollHeight : 0;
+			animation = panel.animate([{
+				height: `${previousHeight}px`,
+				overflow: "clip"
+			}, {
+				height: `${nextHeight}px`,
+				overflow: "clip"
+			}], {
+				duration: 300,
+				easing: "cubic-bezier(0.4, 0, 0.2, 1)"
+			});
+			panel.style.height = "";
+			animation.onfinish = settle;
+		}
+		onMounted(() => motionPreference.addEventListener("change", settle));
+		onUnmounted(() => {
+			motionPreference.removeEventListener("change", settle);
+			settle();
+		});
+		return (_ctx, _cache) => {
+			return openBlock(), createElementBlock("details", {
+				ref_key: "details",
+				ref: details,
+				class: "settings-section"
+			}, [createBaseVNode("summary", {
+				id: __props.summaryId,
+				"aria-expanded": expanded.value,
+				onClick: withModifiers(toggle, ["prevent"])
+			}, toDisplayString(__props.label), 9, _hoisted_1$1), createBaseVNode("div", {
+				ref_key: "content",
+				ref: content,
+				class: "settings-panel",
+				inert: !expanded.value
+			}, [renderSlot(_ctx.$slots, "default")], 8, _hoisted_2$1)], 512);
+		};
+	}
+});
 // src/App.vue?vue&type=script&setup=true&lang.ts
 var _hoisted_1 = { class: "header-actions" };
 var _hoisted_2 = [
@@ -6284,70 +6683,88 @@ var _hoisted_3 = ["hidden", "disabled"];
 var _hoisted_4 = ["disabled"];
 var _hoisted_5 = ["hidden"];
 var _hoisted_6 = ["hidden"];
-var _hoisted_7 = ["value", "disabled"];
-var _hoisted_8 = ["value"];
-var _hoisted_9 = {
+var _hoisted_7 = ["disabled"];
+var _hoisted_8 = {
+	class: "theme-modes",
+	role: "group",
+	"aria-label": "Color mode"
+};
+var _hoisted_9 = ["aria-pressed"];
+var _hoisted_10 = ["aria-pressed"];
+var _hoisted_11 = ["aria-labelledby"];
+var _hoisted_12 = ["id"];
+var _hoisted_13 = ["id"];
+var _hoisted_14 = ["aria-pressed", "onClick"];
+var _hoisted_15 = { class: "custom-color-row" };
+var _hoisted_16 = ["aria-expanded"];
+var _hoisted_17 = ["aria-invalid", "aria-describedby"];
+var _hoisted_18 = ["disabled"];
+var _hoisted_19 = { class: "settings-content" };
+var _hoisted_20 = ["value", "disabled"];
+var _hoisted_21 = ["value"];
+var _hoisted_22 = {
 	id: "lock-help",
 	class: "intro"
 };
-var _hoisted_10 = ["hidden"];
-var _hoisted_11 = ["disabled"];
-var _hoisted_12 = ["hidden"];
-var _hoisted_13 = ["disabled"];
-var _hoisted_14 = ["disabled"];
-var _hoisted_15 = { class: "privacy" };
-var _hoisted_16 = ["hidden"];
-var _hoisted_17 = { id: "import-title" };
-var _hoisted_18 = {
+var _hoisted_23 = { key: 0 };
+var _hoisted_24 = ["hidden"];
+var _hoisted_25 = ["disabled"];
+var _hoisted_26 = ["hidden"];
+var _hoisted_27 = ["disabled"];
+var _hoisted_28 = ["disabled"];
+var _hoisted_29 = { class: "privacy" };
+var _hoisted_30 = ["hidden"];
+var _hoisted_31 = { id: "import-title" };
+var _hoisted_32 = {
 	id: "import-description",
 	class: "intro"
 };
-var _hoisted_19 = {
+var _hoisted_33 = {
 	id: "import-label",
 	for: "import-secret"
 };
-var _hoisted_20 = [
+var _hoisted_34 = [
 	"disabled",
 	"minlength",
 	"autocomplete"
 ];
-var _hoisted_21 = ["hidden"];
-var _hoisted_22 = ["disabled", "required"];
-var _hoisted_23 = { class: "form-actions" };
-var _hoisted_24 = ["disabled"];
-var _hoisted_25 = ["disabled"];
-var _hoisted_26 = ["hidden"];
-var _hoisted_27 = ["disabled"];
-var _hoisted_28 = {
+var _hoisted_35 = ["hidden"];
+var _hoisted_36 = ["disabled", "required"];
+var _hoisted_37 = { class: "form-actions" };
+var _hoisted_38 = ["disabled"];
+var _hoisted_39 = ["disabled"];
+var _hoisted_40 = ["hidden"];
+var _hoisted_41 = ["disabled"];
+var _hoisted_42 = {
 	id: "group",
 	class: "group-filters",
 	role: "group",
 	"aria-label": "Filter by group"
 };
-var _hoisted_29 = [
+var _hoisted_43 = [
 	"data-group",
 	"aria-pressed",
 	"disabled",
 	"onClick"
 ];
-var _hoisted_30 = ["hidden", "open"];
-var _hoisted_31 = { id: "skipped-summary" };
-var _hoisted_32 = { id: "skipped-list" };
-var _hoisted_33 = { class: "list-heading" };
-var _hoisted_34 = { id: "list-label" };
-var _hoisted_35 = {
+var _hoisted_44 = ["hidden", "open"];
+var _hoisted_45 = { id: "skipped-summary" };
+var _hoisted_46 = { id: "skipped-list" };
+var _hoisted_47 = { class: "list-heading" };
+var _hoisted_48 = { id: "list-label" };
+var _hoisted_49 = {
 	id: "total",
 	class: "count",
 	"aria-label": "Matching accounts"
 };
-var _hoisted_36 = { class: "entry-clip" };
-var _hoisted_37 = ["hidden"];
-var _hoisted_38 = ["disabled", "hidden"];
-var _hoisted_39 = ["disabled", "hidden"];
-var _hoisted_40 = ["disabled"];
-var _hoisted_41 = { class: "form-actions" };
-var _hoisted_42 = ["disabled"];
-var _hoisted_43 = ["disabled"];
+var _hoisted_50 = { class: "entry-clip" };
+var _hoisted_51 = ["hidden"];
+var _hoisted_52 = ["disabled", "hidden"];
+var _hoisted_53 = ["disabled", "hidden"];
+var _hoisted_54 = ["disabled"];
+var _hoisted_55 = { class: "form-actions" };
+var _hoisted_56 = ["disabled"];
+var _hoisted_57 = ["disabled"];
 // src/App.vue
 var App_default = /* @__PURE__ */ defineComponent({
 	__name: "App",
@@ -6355,6 +6772,46 @@ var App_default = /* @__PURE__ */ defineComponent({
 		const view = /* @__PURE__ */ ref("welcome");
 		const configOpen = /* @__PURE__ */ ref(new URLSearchParams(location.search).has("config"));
 		const lockSetting = /* @__PURE__ */ ref("restart");
+		const selectedColor = /* @__PURE__ */ ref(DEFAULT_THEME), customHex = /* @__PURE__ */ ref(DEFAULT_THEME);
+		const selectedMode = /* @__PURE__ */ ref("light");
+		const pickerOpen = /* @__PURE__ */ ref(false);
+		const validCustomColor = computed(() => normalizeHex(customHex.value));
+		const customColorError = computed(() => !validCustomColor.value);
+		function setTheme(value) {
+			selectedColor.value = themeColor(value);
+			customHex.value = selectedColor.value;
+			applyTheme(selectedColor.value, selectedMode.value);
+		}
+		async function readTheme() {
+			const settings = await browser.storage.local.get([THEME_SETTING_KEY, THEME_MODE_SETTING_KEY]);
+			selectedMode.value = themeMode(settings[THEME_MODE_SETTING_KEY]);
+			setTheme(settings[THEME_SETTING_KEY]);
+		}
+		function saveThemeMode(mode) {
+			task("", async () => {
+				await browser.storage.local.set({ [THEME_MODE_SETTING_KEY]: mode });
+				selectedMode.value = mode;
+				applyTheme(selectedColor.value, mode);
+			});
+		}
+		function saveTheme(color, mode = selectedMode.value) {
+			const normalized = normalizeHex(color);
+			if (!normalized) return;
+			task("", async () => {
+				await browser.storage.local.set({
+					[THEME_SETTING_KEY]: normalized,
+					[THEME_MODE_SETTING_KEY]: mode
+				});
+				selectedMode.value = mode;
+				setTheme(normalized);
+				pickerOpen.value = false;
+			});
+		}
+		applyTheme(DEFAULT_THEME);
+		function togglePicker() {
+			if (!validCustomColor.value) customHex.value = selectedColor.value;
+			pickerOpen.value = !pickerOpen.value;
+		}
 		const saved = /* @__PURE__ */ shallowRef(null);
 		const pending = /* @__PURE__ */ shallowRef(null);
 		const database = /* @__PURE__ */ shallowRef(null);
@@ -6620,6 +7077,11 @@ var App_default = /* @__PURE__ */ defineComponent({
 			else lock();
 		}
 		const storageChanged = (changes, area) => {
+			if (area === "local" && changes["themeMode"]) {
+				selectedMode.value = themeMode(changes[THEME_MODE_SETTING_KEY].newValue);
+				applyTheme(selectedColor.value, selectedMode.value);
+			}
+			if (area === "local" && changes["themeColor"]) setTheme(changes[THEME_SETTING_KEY].newValue);
 			if (area === "local" && changes["lockAfter"]) {} else if (area === "local" && changes.vault) {
 				const next = changes.vault.newValue;
 				if (!next && !saved.value || next?.revision && next.revision === saved.value?.revision) return;
@@ -6638,7 +7100,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 			document.addEventListener("visibilitychange", visible);
 			window.addEventListener("pagehide", resetSecrets);
 			browser.storage.onChanged.addListener(storageChanged);
-			task("Opening local vault…", () => refreshVault(true));
+			task("Opening local vault…", async () => {
+				await readTheme();
+				await refreshVault(true);
+			});
 		});
 		onUnmounted(() => {
 			transitionRevision++;
@@ -6653,12 +7118,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 		});
 		return (_ctx, _cache) => {
 			return openBlock(), createElementBlock("main", null, [
-				createBaseVNode("header", null, [_cache[10] || (_cache[10] = createBaseVNode("div", { class: "brand" }, [createBaseVNode("img", {
-					src: "icons/shield.svg",
-					width: "32",
-					height: "32",
-					alt: ""
-				}), createBaseVNode("h1", null, [createTextVNode("Aegis "), createBaseVNode("span", null, "for Firefox")])], -1)), createBaseVNode("div", _hoisted_1, [
+				createBaseVNode("header", null, [_cache[15] || (_cache[15] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"m24 32 6 6 11-13\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis <span>for Firefox</span></h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
 					createBaseVNode("button", {
 						disabled: busy.value || view.value === "import-password",
 						id: "config",
@@ -6667,7 +7127,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						"aria-pressed": configOpen.value,
 						title: configOpen.value ? "Back" : "Settings",
 						"aria-label": configOpen.value ? "Back" : "Settings"
-					}, [..._cache[7] || (_cache[7] = [createBaseVNode("svg", {
+					}, [..._cache[12] || (_cache[12] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -6684,7 +7144,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						class: "icon-button",
 						title: "Lock vault",
 						"aria-label": "Lock vault"
-					}, [..._cache[8] || (_cache[8] = [createBaseVNode("svg", {
+					}, [..._cache[13] || (_cache[13] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -6703,7 +7163,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						class: "icon-button",
 						title: "Open in a tab",
 						"aria-label": "Open in a tab"
-					}, [..._cache[9] || (_cache[9] = [createBaseVNode("svg", {
+					}, [..._cache[14] || (_cache[14] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -6736,57 +7196,166 @@ var App_default = /* @__PURE__ */ defineComponent({
 						hidden: !configOpen.value,
 						class: "form-section"
 					}, [
-						_cache[11] || (_cache[11] = createBaseVNode("p", { class: "eyebrow" }, "CONFIGURATION", -1)),
-						_cache[12] || (_cache[12] = createBaseVNode("h2", null, "Vault settings.", -1)),
-						_cache[13] || (_cache[13] = createBaseVNode("p", { class: "intro" }, "Choose how long your vault stays unlocked.", -1)),
-						_cache[14] || (_cache[14] = createBaseVNode("label", { for: "lock-after" }, "Automatically lock vault", -1)),
-						createBaseVNode("select", {
-							id: "lock-after",
-							value: lockSetting.value,
-							disabled: busy.value,
-							"aria-describedby": "lock-help",
-							onChange: saveConfig
-						}, [(openBlock(true), createElementBlock(Fragment, null, renderList(unref(LOCK_OPTIONS), (option) => {
-							return openBlock(), createElementBlock("option", {
-								key: option.value,
-								value: option.value
-							}, toDisplayString(option.label), 9, _hoisted_8);
-						}), 128))], 40, _hoisted_7),
-						createBaseVNode("p", _hoisted_9, toDisplayString(lockDescription.value) + " Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. Changes apply immediately.", 1),
-						_cache[15] || (_cache[15] = createBaseVNode("p", { class: "privacy" }, "Default: On browser restart. You can always select Lock to lock immediately.", -1))
+						_cache[20] || (_cache[20] = createBaseVNode("h2", null, "Settings", -1)),
+						createVNode(AnimatedDetails_default, {
+							id: "appearance-settings",
+							label: "Appearance",
+							"summary-id": "appearance-label"
+						}, {
+							default: withCtx(() => [createBaseVNode("fieldset", {
+								class: "theme-settings",
+								disabled: busy.value,
+								"aria-labelledby": "appearance-label"
+							}, [
+								createBaseVNode("div", _hoisted_8, [createBaseVNode("button", {
+									id: "theme-light",
+									type: "button",
+									class: "theme-mode",
+									"aria-pressed": selectedMode.value === "light",
+									onClick: _cache[0] || (_cache[0] = ($event) => saveThemeMode("light"))
+								}, "Light", 8, _hoisted_9), createBaseVNode("button", {
+									id: "theme-dark",
+									type: "button",
+									class: "theme-mode",
+									"aria-pressed": selectedMode.value === "dark",
+									onClick: _cache[1] || (_cache[1] = ($event) => saveThemeMode("dark"))
+								}, "Dark", 8, _hoisted_10)]),
+								(openBlock(true), createElementBlock(Fragment, null, renderList(unref(THEME_GROUPS), (group) => {
+									return openBlock(), createElementBlock("div", {
+										key: group.mode,
+										class: "theme-group",
+										role: "group",
+										"aria-labelledby": `themes-${group.mode}-label`
+									}, [createBaseVNode("h3", { id: `themes-${group.mode}-label` }, toDisplayString(group.label), 9, _hoisted_12), createBaseVNode("div", {
+										id: `themes-${group.mode}`,
+										class: "theme-presets"
+									}, [(openBlock(true), createElementBlock(Fragment, null, renderList(group.themes, (theme) => {
+										return openBlock(), createElementBlock("button", {
+											key: theme.color,
+											type: "button",
+											class: "theme-preset",
+											"aria-pressed": selectedColor.value === theme.color && selectedMode.value === theme.mode,
+											onClick: ($event) => saveTheme(theme.color, theme.mode)
+										}, [createBaseVNode("span", {
+											class: "theme-swatch",
+											style: normalizeStyle({
+												backgroundColor: theme.color,
+												color: theme.mode === "light" ? "#111111" : "#ffffff"
+											}),
+											"aria-hidden": "true"
+										}, toDisplayString(selectedColor.value === theme.color && selectedMode.value === theme.mode ? "✓" : ""), 5), createTextVNode(" " + toDisplayString(theme.name), 1)], 8, _hoisted_14);
+									}), 128))], 8, _hoisted_13)], 8, _hoisted_11);
+								}), 128)),
+								createBaseVNode("form", {
+									id: "custom-theme-form",
+									onSubmit: _cache[4] || (_cache[4] = withModifiers(($event) => validCustomColor.value && saveTheme(validCustomColor.value), ["prevent"]))
+								}, [
+									_cache[16] || (_cache[16] = createBaseVNode("label", { for: "theme-hex" }, "Custom hex color", -1)),
+									createBaseVNode("div", _hoisted_15, [
+										createBaseVNode("button", {
+											id: "theme-picker",
+											type: "button",
+											class: "color-picker-button",
+											"aria-expanded": pickerOpen.value,
+											"aria-controls": "theme-color-controls",
+											"aria-label": "Choose custom theme color",
+											title: "Choose custom theme color",
+											onClick: togglePicker
+										}, [createBaseVNode("span", {
+											style: normalizeStyle({ backgroundColor: validCustomColor.value || selectedColor.value }),
+											"aria-hidden": "true"
+										}, null, 4)], 8, _hoisted_16),
+										withDirectives(createBaseVNode("input", {
+											id: "theme-hex",
+											"onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => customHex.value = $event),
+											type: "text",
+											placeholder: "#166552",
+											maxlength: "7",
+											spellcheck: "false",
+											autocomplete: "off",
+											"aria-invalid": customColorError.value,
+											"aria-describedby": customColorError.value ? "theme-hex-help" : void 0
+										}, null, 8, _hoisted_17), [[vModelText, customHex.value]]),
+										createBaseVNode("button", {
+											type: "submit",
+											class: "secondary",
+											disabled: busy.value || customColorError.value
+										}, "Apply", 8, _hoisted_18)
+									]),
+									pickerOpen.value ? (openBlock(), createBlock(ColorPicker_default, {
+										key: 0,
+										modelValue: customHex.value,
+										"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => customHex.value = $event)
+									}, null, 8, ["modelValue"])) : createCommentVNode("", true),
+									withDirectives(createBaseVNode("p", {
+										id: "theme-hex-help",
+										class: "color-help danger",
+										"aria-live": "polite"
+									}, toDisplayString(customColorError.value ? "Enter a 3- or 6-digit hex color, such as #166552." : ""), 513), [[vShow, customColorError.value]])
+								], 32)
+							], 8, _hoisted_7)]),
+							_: 1
+						}),
+						createVNode(AnimatedDetails_default, {
+							id: "lock-settings",
+							label: "Lock settings"
+						}, {
+							default: withCtx(() => [createBaseVNode("div", _hoisted_19, [
+								_cache[18] || (_cache[18] = createBaseVNode("label", { for: "lock-after" }, "Automatically lock vault", -1)),
+								createBaseVNode("select", {
+									id: "lock-after",
+									value: lockSetting.value,
+									disabled: busy.value,
+									"aria-describedby": "lock-help",
+									onChange: saveConfig
+								}, [(openBlock(true), createElementBlock(Fragment, null, renderList(unref(LOCK_OPTIONS), (option) => {
+									return openBlock(), createElementBlock("option", {
+										key: option.value,
+										value: option.value
+									}, toDisplayString(option.label), 9, _hoisted_21);
+								}), 128))], 40, _hoisted_20),
+								createBaseVNode("p", _hoisted_22, [
+									createTextVNode(toDisplayString(lockDescription.value) + " ", 1),
+									lockSetting.value !== "restart" ? (openBlock(), createElementBlock("span", _hoisted_23, "Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. ")) : createCommentVNode("", true),
+									_cache[17] || (_cache[17] = createTextVNode("Changes apply immediately.", -1))
+								]),
+								_cache[19] || (_cache[19] = createBaseVNode("p", { class: "privacy" }, "Default: On browser restart. You can always select Lock to lock immediately.", -1))
+							])]),
+							_: 1
+						})
 					], 8, _hoisted_6),
 					createBaseVNode("section", {
 						id: "welcome",
 						hidden: configOpen.value || view.value !== "welcome"
 					}, [
-						_cache[17] || (_cache[17] = createBaseVNode("div", {
+						_cache[22] || (_cache[22] = createBaseVNode("div", {
 							class: "hero-icon",
 							"aria-hidden": "true"
 						}, "✳", -1)),
-						_cache[18] || (_cache[18] = createBaseVNode("p", { class: "eyebrow" }, "A LITTLE PEACE OF MIND", -1)),
-						_cache[19] || (_cache[19] = createBaseVNode("h2", null, [
+						_cache[23] || (_cache[23] = createBaseVNode("p", { class: "eyebrow" }, "A LITTLE PEACE OF MIND", -1)),
+						_cache[24] || (_cache[24] = createBaseVNode("h2", null, [
 							createTextVNode("Your authenticator,"),
 							createBaseVNode("br"),
 							createTextVNode("right here.")
 						], -1)),
-						_cache[20] || (_cache[20] = createBaseVNode("p", { class: "intro" }, "Load an Aegis JSON export to get your verification codes, organized just the way you left them.", -1)),
+						_cache[25] || (_cache[25] = createBaseVNode("p", { class: "intro" }, "Load an Aegis JSON export to get your verification codes, organized just the way you left them.", -1)),
 						createBaseVNode("button", {
 							disabled: busy.value,
 							id: "first-import",
 							onClick: chooseFile,
 							class: "primary"
-						}, [..._cache[16] || (_cache[16] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_11),
-						_cache[21] || (_cache[21] = createBaseVNode("div", { class: "privacy" }, [createBaseVNode("span", { "aria-hidden": "true" }, "◉"), createTextVNode(" Entirely local. No account. No uploads.")], -1)),
-						_cache[22] || (_cache[22] = createBaseVNode("details", { class: "help" }, [createBaseVNode("summary", null, "How do I export from Aegis?"), createBaseVNode("p", null, "In the Android app, open Settings → Import & export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.")], -1))
-					], 8, _hoisted_10),
+						}, [..._cache[21] || (_cache[21] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_25),
+						_cache[26] || (_cache[26] = createBaseVNode("div", { class: "privacy" }, [createBaseVNode("span", { "aria-hidden": "true" }, "◉"), createTextVNode(" Entirely local. No account. No uploads.")], -1)),
+						_cache[27] || (_cache[27] = createBaseVNode("details", { class: "help" }, [createBaseVNode("summary", null, "How do I export from Aegis?"), createBaseVNode("p", null, "In the Android app, open Settings → Import & export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.")], -1))
+					], 8, _hoisted_24),
 					createBaseVNode("section", {
 						id: "unlock",
 						hidden: configOpen.value || view.value !== "unlock",
 						class: "form-section"
 					}, [
-						_cache[24] || (_cache[24] = createBaseVNode("p", { class: "eyebrow" }, "LOCAL VAULT", -1)),
-						_cache[25] || (_cache[25] = createBaseVNode("h2", null, "Welcome back.", -1)),
-						_cache[26] || (_cache[26] = createBaseVNode("p", {
+						_cache[29] || (_cache[29] = createBaseVNode("p", { class: "eyebrow" }, "LOCAL VAULT", -1)),
+						_cache[30] || (_cache[30] = createBaseVNode("h2", null, "Welcome back.", -1)),
+						_cache[31] || (_cache[31] = createBaseVNode("p", {
 							id: "unlock-description",
 							class: "intro"
 						}, "Unlock your vault to see your codes.", -1)),
@@ -6794,78 +7363,78 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "unlock-form",
 							onSubmit: withModifiers(unlock, ["prevent"])
 						}, [
-							_cache[23] || (_cache[23] = createBaseVNode("label", { for: "unlock-password" }, "Vault password", -1)),
+							_cache[28] || (_cache[28] = createBaseVNode("label", { for: "unlock-password" }, "Vault password", -1)),
 							withDirectives(createBaseVNode("input", {
 								disabled: busy.value,
 								id: "unlock-password",
 								ref_key: "unlockInput",
 								ref: unlockInput,
-								"onUpdate:modelValue": _cache[0] || (_cache[0] = ($event) => unlockPassword.value = $event),
+								"onUpdate:modelValue": _cache[5] || (_cache[5] = ($event) => unlockPassword.value = $event),
 								type: "password",
 								autocomplete: "current-password",
 								required: ""
-							}, null, 8, _hoisted_13), [[vModelText, unlockPassword.value]]),
+							}, null, 8, _hoisted_27), [[vModelText, unlockPassword.value]]),
 							createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Unlock vault", 8, _hoisted_14)
+							}, "Unlock vault", 8, _hoisted_28)
 						], 32),
-						createBaseVNode("p", _hoisted_15, toDisplayString(lockDescription.value), 1)
-					], 8, _hoisted_12),
+						createBaseVNode("p", _hoisted_29, toDisplayString(lockDescription.value), 1)
+					], 8, _hoisted_26),
 					createBaseVNode("section", {
 						id: "import-password",
 						hidden: configOpen.value || view.value !== "import-password",
 						class: "form-section"
 					}, [
-						_cache[28] || (_cache[28] = createBaseVNode("p", { class: "eyebrow" }, "IMPORT VAULT", -1)),
-						createBaseVNode("h2", _hoisted_17, toDisplayString(encrypted.value ? "Unlock your export." : "Protect your local copy."), 1),
-						createBaseVNode("p", _hoisted_18, toDisplayString(encrypted.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. Choose a password to encrypt the copy saved in Firefox. Your original file is unchanged."), 1),
+						_cache[33] || (_cache[33] = createBaseVNode("p", { class: "eyebrow" }, "IMPORT VAULT", -1)),
+						createBaseVNode("h2", _hoisted_31, toDisplayString(encrypted.value ? "Unlock your export." : "Protect your local copy."), 1),
+						createBaseVNode("p", _hoisted_32, toDisplayString(encrypted.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. Choose a password to encrypt the copy saved in Firefox. Your original file is unchanged."), 1),
 						createBaseVNode("form", {
 							id: "import-form",
 							onSubmit: withModifiers(importVault, ["prevent"])
 						}, [
-							createBaseVNode("label", _hoisted_19, toDisplayString(encrypted.value ? "Aegis export password" : "New local password (at least 8 characters)"), 1),
+							createBaseVNode("label", _hoisted_33, toDisplayString(encrypted.value ? "Aegis export password" : "New local password (at least 8 characters)"), 1),
 							withDirectives(createBaseVNode("input", {
 								disabled: busy.value,
 								id: "import-secret",
 								ref_key: "importInput",
 								ref: importInput,
-								"onUpdate:modelValue": _cache[1] || (_cache[1] = ($event) => importSecret.value = $event),
+								"onUpdate:modelValue": _cache[6] || (_cache[6] = ($event) => importSecret.value = $event),
 								minlength: encrypted.value ? 1 : 8,
 								autocomplete: encrypted.value ? "current-password" : "new-password",
 								type: "password",
 								required: ""
-							}, null, 8, _hoisted_20), [[vModelText, importSecret.value]]),
+							}, null, 8, _hoisted_34), [[vModelText, importSecret.value]]),
 							createBaseVNode("div", {
 								id: "confirm-wrap",
 								hidden: encrypted.value
-							}, [_cache[27] || (_cache[27] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
+							}, [_cache[32] || (_cache[32] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
 								disabled: busy.value,
 								id: "confirm-secret",
-								"onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => confirmSecret.value = $event),
+								"onUpdate:modelValue": _cache[7] || (_cache[7] = ($event) => confirmSecret.value = $event),
 								required: !encrypted.value,
 								type: "password",
 								autocomplete: "new-password"
-							}, null, 8, _hoisted_22), [[vModelText, confirmSecret.value]])], 8, _hoisted_21),
-							createBaseVNode("div", _hoisted_23, [createBaseVNode("button", {
+							}, null, 8, _hoisted_36), [[vModelText, confirmSecret.value]])], 8, _hoisted_35),
+							createBaseVNode("div", _hoisted_37, [createBaseVNode("button", {
 								disabled: busy.value,
 								id: "cancel-import",
 								onClick: cancelImport,
 								class: "secondary",
 								type: "button"
-							}, "Cancel", 8, _hoisted_24), createBaseVNode("button", {
+							}, "Cancel", 8, _hoisted_38), createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Import vault", 8, _hoisted_25)])
+							}, "Import vault", 8, _hoisted_39)])
 						], 32)
-					], 8, _hoisted_16),
+					], 8, _hoisted_30),
 					createBaseVNode("section", {
 						id: "vault",
 						hidden: configOpen.value || view.value !== "vault"
 					}, [
-						_cache[30] || (_cache[30] = createBaseVNode("label", {
+						_cache[35] || (_cache[35] = createBaseVNode("label", {
 							class: "search-label",
 							for: "search"
 						}, "Search accounts", -1)),
@@ -6874,13 +7443,13 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "search",
 							ref_key: "searchInput",
 							ref: searchInput,
-							"onUpdate:modelValue": _cache[3] || (_cache[3] = ($event) => search.value = $event),
+							"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => search.value = $event),
 							type: "search",
 							placeholder: "Search service or account…",
 							autocomplete: "off",
 							spellcheck: "false"
-						}, null, 8, _hoisted_27), [[vModelText, search.value]]),
-						createBaseVNode("div", _hoisted_28, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
+						}, null, 8, _hoisted_41), [[vModelText, search.value]]),
+						createBaseVNode("div", _hoisted_42, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
 							return openBlock(), createElementBlock("button", {
 								key: group.value,
 								class: "group-badge",
@@ -6889,18 +7458,18 @@ var App_default = /* @__PURE__ */ defineComponent({
 								"aria-pressed": selectedGroup.value === group.value,
 								disabled: busy.value,
 								onClick: ($event) => selectedGroup.value = group.value
-							}, toDisplayString(group.label), 9, _hoisted_29);
+							}, toDisplayString(group.label), 9, _hoisted_43);
 						}), 128))]),
 						createBaseVNode("details", {
 							id: "skipped",
 							hidden: !database.value?.skipped.length,
 							open: skippedOpen.value,
-							onToggle: _cache[4] || (_cache[4] = ($event) => skippedOpen.value = $event.target.open),
+							onToggle: _cache[9] || (_cache[9] = ($event) => skippedOpen.value = $event.target.open),
 							class: "help warning"
-						}, [createBaseVNode("summary", _hoisted_31, toDisplayString(database.value?.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_32, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value?.skipped, (reason, index) => {
+						}, [createBaseVNode("summary", _hoisted_45, toDisplayString(database.value?.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_46, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value?.skipped, (reason, index) => {
 							return openBlock(), createElementBlock("li", { key: index }, toDisplayString(reason), 1);
-						}), 128))])], 40, _hoisted_30),
-						createBaseVNode("div", _hoisted_33, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_34, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_35, toDisplayString(entries.value.length), 1)]), _cache[29] || (_cache[29] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
+						}), 128))])], 40, _hoisted_44),
+						createBaseVNode("div", _hoisted_47, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_48, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_49, toDisplayString(entries.value.length), 1)]), _cache[34] || (_cache[34] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
 						database.value && !configOpen.value ? (openBlock(), createBlock(TransitionGroup, {
 							key: epoch.value,
 							id: "entries",
@@ -6914,7 +7483,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 								return openBlock(), createElementBlock("div", {
 									key: entry.id,
 									class: "entry-slot"
-								}, [createBaseVNode("div", _hoisted_36, [createVNode(AccountCard_default, {
+								}, [createBaseVNode("div", _hoisted_50, [createVNode(AccountCard_default, {
 									entry,
 									now: now.value,
 									"group-names": groupNames.value,
@@ -6933,23 +7502,23 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "no-results",
 							hidden: entries.value.length > 0,
 							class: "empty"
-						}, "No accounts match your search.", 8, _hoisted_37),
-						_cache[31] || (_cache[31] = createBaseVNode("p", { class: "clock-note" }, "Codes use your computer’s clock. Keep it in sync.", -1))
-					], 8, _hoisted_26)
+						}, "No accounts match your search.", 8, _hoisted_51),
+						_cache[36] || (_cache[36] = createBaseVNode("p", { class: "clock-note" }, "Codes use your computer’s clock. Keep it in sync.", -1))
+					], 8, _hoisted_40)
 				], 512),
-				createBaseVNode("footer", null, [_cache[32] || (_cache[32] = createBaseVNode("span", { class: "local-indicator" }, "LOCAL ONLY", -1)), createBaseVNode("div", null, [createBaseVNode("button", {
+				createBaseVNode("footer", null, [_cache[37] || (_cache[37] = createBaseVNode("span", { class: "local-indicator" }, "LOCAL ONLY", -1)), createBaseVNode("div", null, [createBaseVNode("button", {
 					disabled: busy.value,
 					id: "replace",
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
 					onClick: chooseFile,
 					class: "text-button"
-				}, "Load another file", 8, _hoisted_38), createBaseVNode("button", {
+				}, "Load another file", 8, _hoisted_52), createBaseVNode("button", {
 					disabled: busy.value,
 					id: "forget",
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
-					onClick: _cache[5] || (_cache[5] = ($event) => removeDialog.value?.showModal()),
+					onClick: _cache[10] || (_cache[10] = ($event) => removeDialog.value?.showModal()),
 					class: "text-button danger"
-				}, "Remove vault", 8, _hoisted_39)])]),
+				}, "Remove vault", 8, _hoisted_53)])]),
 				createBaseVNode("input", {
 					disabled: busy.value,
 					id: "file",
@@ -6959,25 +7528,25 @@ var App_default = /* @__PURE__ */ defineComponent({
 					onChange: chooseImport,
 					type: "file",
 					accept: ".json,application/json"
-				}, null, 40, _hoisted_40),
+				}, null, 40, _hoisted_54),
 				createBaseVNode("dialog", {
 					id: "remove-dialog",
 					ref_key: "removeDialog",
 					ref: removeDialog
 				}, [
-					_cache[33] || (_cache[33] = createBaseVNode("h2", null, "Remove this vault?", -1)),
-					_cache[34] || (_cache[34] = createBaseVNode("p", null, "This deletes the extension’s saved copy. Your original Aegis file stays on your device.", -1)),
-					createBaseVNode("div", _hoisted_41, [createBaseVNode("button", {
+					_cache[38] || (_cache[38] = createBaseVNode("h2", null, "Remove this vault?", -1)),
+					_cache[39] || (_cache[39] = createBaseVNode("p", null, "This deletes the extension’s saved copy. Your original Aegis file stays on your device.", -1)),
+					createBaseVNode("div", _hoisted_55, [createBaseVNode("button", {
 						disabled: busy.value,
 						id: "cancel-remove",
-						onClick: _cache[6] || (_cache[6] = ($event) => removeDialog.value?.close()),
+						onClick: _cache[11] || (_cache[11] = ($event) => removeDialog.value?.close()),
 						class: "secondary"
-					}, "Cancel", 8, _hoisted_42), createBaseVNode("button", {
+					}, "Cancel", 8, _hoisted_56), createBaseVNode("button", {
 						disabled: busy.value,
 						id: "confirm-remove",
 						onClick: removeVault,
 						class: "primary destructive"
-					}, "Remove vault", 8, _hoisted_43)])
+					}, "Remove vault", 8, _hoisted_57)])
 				], 512)
 			]);
 		};
