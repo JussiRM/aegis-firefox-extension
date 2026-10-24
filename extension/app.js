@@ -7157,7 +7157,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 		});
 		return (_ctx, _cache) => {
 			return openBlock(), createElementBlock("main", null, [
-				createBaseVNode("header", null, [_cache[17] || (_cache[17] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"m24 32 6 6 11-13\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis <span>for Firefox</span></h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
+				createBaseVNode("header", null, [_cache[17] || (_cache[17] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"M24 40 32 23 40 40M27 34h10\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis Viewer</h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
 					createBaseVNode("button", {
 						disabled: busy.value || view.value === "import-password",
 						id: "config",

@@ -73,10 +73,10 @@ class Marionette:
         self.js("const el = document.querySelector(arguments[0]); el.value = arguments[1]; el.dispatchEvent(new Event('input', {bubbles:true}));", [selector, value])
 
     def clock(self, timestamp):
-        self.js("document.dispatchEvent(new CustomEvent('__firefox_aegis_test_clock', {detail: arguments[0]}));", [timestamp])
+        self.js("document.dispatchEvent(new CustomEvent('__aegis_viewer_test_clock', {detail: arguments[0]}));", [timestamp])
 
     def session_snapshot(self):
-        self.js("delete document.documentElement.dataset.sessionSnapshot; document.dispatchEvent(new Event('__firefox_aegis_test_session')); ")
+        self.js("delete document.documentElement.dataset.sessionSnapshot; document.dispatchEvent(new Event('__aegis_viewer_test_session')); ")
         self.wait("document.documentElement.dataset.sessionSnapshot")
         return json.loads(self.js("return document.documentElement.dataset.sessionSnapshot"))
 
@@ -104,7 +104,7 @@ def main():
     firefox = shutil.which("firefox")
     if not firefox:
         raise SystemExit("Firefox must be installed for this test.")
-    with tempfile.TemporaryDirectory(prefix="firefox-aegis-test-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="aegis-viewer-test-") as temporary:
         directory = Path(temporary)
         profile = directory / "profile"
         profile.mkdir()
@@ -135,17 +135,17 @@ def main():
                         clock = """(() => {
                           const realNow = Date.now.bind(Date); let clock = null;
                           Date.now = () => clock ?? realNow();
-                          document.addEventListener('__firefox_aegis_test_clock', event => {
+                          document.addEventListener('__aegis_viewer_test_clock', event => {
                             clock = event.detail;
                             document.dispatchEvent(new Event('visibilitychange'));
                           });
-                          document.addEventListener('__firefox_aegis_test_expire', async event => {
+                          document.addEventListener('__aegis_viewer_test_expire', async event => {
                             const cache = await browser.storage.session.get('unlockedVault');
                             cache.unlockedVault.unlockedAt = realNow() - 60_000 + (event.detail ?? 1_000);
                             await browser.storage.session.set(cache);
                             document.documentElement.dataset.expiryReady = 'true';
                           });
-                          document.addEventListener('__firefox_aegis_test_session', async () => {
+                          document.addEventListener('__aegis_viewer_test_session', async () => {
                             const cache = await browser.storage.session.get('unlockedVault');
                             const alarm = await browser.alarms.get('lock-vault');
                             document.documentElement.dataset.sessionSnapshot = JSON.stringify({
@@ -624,7 +624,7 @@ def main():
 
             # Reopening the popup resets the shared timer and updates the
             # deadline in the other, already-open view without a refresh loop.
-            client.js("document.dispatchEvent(new CustomEvent('__firefox_aegis_test_expire', {detail: 5_000}))")
+            client.js("document.dispatchEvent(new CustomEvent('__aegis_viewer_test_expire', {detail: 5_000}))")
             client.wait("document.documentElement.dataset.expiryReady === 'true'")
             old_timer = client.session_snapshot()
             client.navigate(url.split("?")[0])
@@ -643,7 +643,7 @@ def main():
             client.clock(None)
             client.command("WebDriver:SwitchToWindow", {"handle": first})
 
-            client.js("document.dispatchEvent(new Event('__firefox_aegis_test_expire'))")
+            client.js("document.dispatchEvent(new Event('__aegis_viewer_test_expire'))")
             client.wait("document.documentElement.dataset.expiryReady === 'true'")
             client.wait("!document.getElementById('unlock').hidden && !document.getElementById('unlock-password').disabled")
             client.command("WebDriver:SwitchToWindow", {"handle": second})
@@ -651,7 +651,7 @@ def main():
             client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
-            client.js("document.dispatchEvent(new Event('__firefox_aegis_test_expire'))")
+            client.js("document.dispatchEvent(new Event('__aegis_viewer_test_expire'))")
             client.wait("document.documentElement.dataset.expiryReady === 'true'")
             client.navigate("about:blank")
             client.command("WebDriver:SwitchToWindow", {"handle": first})

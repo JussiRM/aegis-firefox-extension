@@ -310,7 +310,7 @@ onUnmounted(() => {
 <template>
   <main>
     <header>
-      <div class="brand"><svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="var(--accent)"/><path d="M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z" fill="none" stroke="var(--on-accent)" stroke-width="3.5"/><path d="m24 32 6 6 11-13" fill="none" stroke="var(--on-accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Aegis <span>for Firefox</span></h1></div>
+      <div class="brand"><svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="var(--accent)"/><path d="M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z" fill="none" stroke="var(--on-accent)" stroke-width="3.5"/><path d="M24 40 32 23 40 40M27 34h10" fill="none" stroke="var(--on-accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Aegis Viewer</h1></div>
       <!-- Bootstrap Icons v1.13.1 (MIT); see licenses/bootstrap-icons-LICENSE.txt. -->
       <div class="header-actions">
         <button :disabled="busy || view === 'import-password'" id="config" @click="toggleConfig" class="icon-button" :aria-pressed="configOpen" :title="configOpen ? 'Back' : 'Settings'" :aria-label="configOpen ? 'Back' : 'Settings'">

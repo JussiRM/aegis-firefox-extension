@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Firefox Aegis",
+  "name": "Aegis Viewer",
   "version": "1.1.0",
-  "description": "Your Aegis TOTP codes, locally in Firefox. Import a JSON vault and browse your groups.",
+  "description": "View TOTP codes locally from your Aegis Authenticator exports. Unofficial, with no uploads or sync.",
   "permissions": ["storage", "clipboardWrite", "alarms"],
   "background": { "scripts": ["background.js"] },
   "options_ui": { "page": "app.html?tab=1&config=1", "open_in_tab": true },
   "action": {
-    "default_title": "Firefox Aegis",
+    "default_title": "Aegis Viewer",
     "default_popup": "app.html",
     "default_icon": "icons/shield.svg"
   },

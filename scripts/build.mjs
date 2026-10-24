@@ -1,5 +1,5 @@
 import { build } from 'vite';
-import { readFile, writeFile } from 'node:fs/promises';
+import { copyFile, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 
 await build();
@@ -20,7 +20,8 @@ await build({
     },
   },
 });
-// Include the licenses of bundled runtime dependencies alongside the extension.
+// Include the project license and bundled third-party notices in the extension.
+await copyFile('LICENSE', 'extension/LICENSE');
 const licenses = await Promise.all([
   ['@noble/hashes', 'LICENSE'], ['vue', 'LICENSE'],
   ['@vue/shared', 'LICENSE'], ['@vue/reactivity', 'LICENSE'],

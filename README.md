@@ -1,12 +1,12 @@
-# Firefox Aegis
+# Aegis Viewer
 
 > **AI disclosure:** This extension was made entirely by AI.
 
 A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](https://github.com/beemdevelopment/Aegis) JSON export.
 
-**Unofficial third-party extension:** Firefox Aegis is not affiliated with or endorsed by the Aegis Authenticator or Firefox teams.
+**Unofficial third-party extension:** Aegis Viewer is not affiliated with or endorsed by the Aegis Authenticator or Firefox teams.
 
-![Firefox Aegis in dark and light themes, showing demo TOTP accounts filtered by Gaming and Work groups](artifacts/showoff.png)
+![Aegis Viewer showing demo TOTP accounts in the default light theme](artifacts/preview.png)
 
 ## Features
 
@@ -26,7 +26,7 @@ Requires Firefox **142 or later**.
 1. Open `about:debugging#/runtime/this-firefox`.
 2. Click **Load Temporary Add-on…**.
 3. Select `extension/manifest.json` from this project.
-4. Open the **Firefox Aegis** toolbar button. Choose **Choose Aegis JSON** to open the import tab, then select your export.
+4. Open the **Aegis Viewer** toolbar button. Choose **Choose Aegis JSON** to open the import tab, then select your export.
 5. For an encrypted export, enter its Aegis password. For an unencrypted export, **Import without password** is selected by default. Select **Encrypt local copy** to show the password and confirmation fields if you want encryption, then select **Continue**.
 
 The built `extension/` directory is included, so loading it requires no Node installation. Temporary add-ons are removed when Firefox restarts. To create an unsigned ZIP for temporary loading or submission to Mozilla for signing, run `npm ci` and `npm run package` (see [Develop and verify](#develop-and-verify)). Generated ZIPs are not included in the repository. Permanent installation in regular Firefox requires Mozilla signing, either listed or unlisted.
@@ -55,7 +55,7 @@ To locate the profile on disk, open `about:support` in Firefox. Under **Applicat
 
 See [Mozilla's profile-folder guide](https://support.mozilla.org/en-US/kb/profiles-where-firefox-stores-user-data) for installation-specific differences.
 
-Firefox manages the saved copy as an IndexedDB database rather than a standalone Aegis JSON file. Its storage is typically under `<profile>/storage/default/moz-extension+++<internal-uuid>^userContextId=4294967295/idb/`; this is a Firefox implementation detail and can change. Find Firefox Aegis's **Internal UUID** on `about:debugging#/runtime/this-firefox` to identify its directory. See [Mozilla's storage directory example](https://bugzilla.mozilla.org/show_bug.cgi?id=1979997). The internal UUID is profile-specific and differs from the add-on ID `firefox-aegis@local.extension`.
+Firefox manages the saved copy as an IndexedDB database rather than a standalone Aegis JSON file. Its storage is typically under `<profile>/storage/default/moz-extension+++<internal-uuid>^userContextId=4294967295/idb/`; this is a Firefox implementation detail and can change. Find Aegis Viewer's **Internal UUID** on `about:debugging#/runtime/this-firefox` to identify its directory. See [Mozilla's storage directory example](https://bugzilla.mozilla.org/show_bug.cgi?id=1979997). The internal UUID is profile-specific and differs from the add-on ID `firefox-aegis@local.extension`.
 
 **Remove vault** deletes the saved vault and unlocked cache while keeping appearance and lock preferences. It leaves the original export and any backups untouched. Keep your Aegis export as your portable backup; Firefox's internal database files are managed by the browser.
 
@@ -99,7 +99,7 @@ Choose the relevant commands below when verifying changes or preparing a package
 | `npm test` | Run unit tests for TOTP reference vectors, vault imports and encryption, sessions, lock policies, and theme contrast. |
 | `npm run lint` | Run Mozilla's Add-ons Linter against the built extension. |
 | `npm run test:firefox` | Build and run the Firefox integration smoke test. |
-| `npm run package` | Build, lint, and create `artifacts/firefox-aegis-<version>.zip`, using the manifest version. |
+| `npm run package` | Build, lint, and create `artifacts/aegis-viewer-<version>.zip`, using the manifest version. |
 
 Every build includes typechecking. The Firefox smoke test uses a disposable headless profile and public demo secrets to check imports, password handling, code rollover, copy/filtering, locking across views and restarts, appearance settings, and removal. It never opens the user's Firefox profile. Test-only clock and lock-expiry hooks are injected into its disposable archive. Screenshots are written under `artifacts/`, including `preview.png`, `settings-preview.png`, and `settings-dark-preview.png`.
 
@@ -108,6 +108,12 @@ The linter fails on errors and unexpected warnings. `scripts/lint.mjs` permits o
 Edit application code in `src/` and styles in `src/app.scss`, then rebuild. Vite compiles Vue 3 components, TypeScript, and Sass into `extension/app.html`, `app.js`, `app.css`, and `background.js`; direct edits to those generated files are overwritten. JavaScript and CSS output remain unminified for readability. The manifest and icons are maintained directly in `extension/`. Runtime dependencies and compiled templates are bundled, so running the extension requires no package installation, runtime template compiler, or relaxed content security policy.
 
 `src/App.vue` coordinates imports, unlocking, settings, and shared state; `src/components/AccountCard.vue` renders accounts and countdowns. Vault, TOTP, and session logic live in `src/vault.ts`, `src/totp.ts`, and `src/session.ts`. Appearance is defined in `src/theme.ts`; lock policies and alarms live in `src/settings.ts`, `src/auto-lock.ts`, and `src/background.ts`. Unit tests execute TypeScript modules directly using Node's type stripping.
+
+## License
+
+Aegis Viewer's own code is licensed under the [MIT License](LICENSE). The license is also included in the built extension and packaged ZIP.
+
+Third-party components retain their respective licenses; bundled dependency and icon notices are included in [extension/THIRD_PARTY_LICENSE.txt](extension/THIRD_PARTY_LICENSE.txt). The Aegis test fixtures `tests/fixtures/upstream-plain.json` and `tests/fixtures/upstream-encrypted.json` remain separately licensed under GPL-3.0; see [tests/fixtures/LICENSE](tests/fixtures/LICENSE). These test fixtures are not included in the extension package.
 
 ## Format and test sources
 
