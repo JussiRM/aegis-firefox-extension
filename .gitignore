@@ -1,6 +1,8 @@
 node_modules/
 artifacts/*
 !artifacts/preview.png
+!artifacts/preview-light.png
+!artifacts/preview-dark.png
 !artifacts/showoff.png
 test-results/
 *.log

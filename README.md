@@ -6,7 +6,7 @@ A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](h
 
 **Unofficial third-party extension:** Aegis Viewer is not affiliated with or endorsed by the Aegis Authenticator or Firefox teams.
 
-![Aegis Viewer showing demo TOTP accounts in the default light theme](artifacts/preview.png)
+![Aegis Viewer in dark and light modes, with the dark Gaming view tilted above the light Work view](artifacts/showoff.png)
 
 ## Features
 
@@ -17,7 +17,7 @@ A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](h
 - **Configurable locking:** Lock password-protected vaults manually, on browser restart, or after a selected timeout. Locking applies across open extension views.
 - **Custom appearance:** Choose light or dark mode, use built-in color presets, or set your own background with the inline color picker or a hex value.
 - **Popup and tab views:** Check codes from the toolbar popup or open the extension in a full tab.
-- **TOTP compatibility:** Supports SHA-1, SHA-256, and SHA-512 with custom code lengths and periods, and shows details for skipped unsupported or invalid entries.
+- **TOTP compatibility:** Supports SHA-1, SHA-256, and SHA-512 with custom code lengths and periods, and shows details for skipped unsupported or invalid entries in Settings when needed.
 
 ## Load in Firefox
 
@@ -78,7 +78,7 @@ Select the color swatch to open the inline hue, saturation, and lightness slider
 
 - File reading, password derivation, decryption, and TOTP generation happen on this device. There are no servers, analytics, external fonts, remote code, content scripts, or website permissions. The extension's content security policy blocks network connections.
 - Clipboard access is write-only and happens when you click a code. The copied code stays in the system clipboard until you replace it; the extension does not read the clipboard or clear other clipboard content.
-- Supported: TOTP with SHA-1, SHA-256, or SHA-512, custom digits and periods, Aegis file version 1 / database versions 1–3, multiple group memberships, and older named groups. Other token types (HOTP, Steam, MOTP, Yandex) and invalid entries are skipped with visible details. Imported icons are ignored; service initials are shown.
+- Supported: TOTP with SHA-1, SHA-256, or SHA-512, custom digits and periods, Aegis file version 1 / database versions 1–3, multiple group memberships, and older named groups. Other token types (HOTP, Steam, MOTP, Yandex) and invalid entries are skipped with details in Settings. The skipped-entry section appears only when there are skipped entries. Imported icons are ignored; service initials are shown.
 - Aegis encrypted imports require a password slot. Android biometric-only slots cannot be unlocked in Firefox. Imports are limited to 20 MB and 10,000 entries; scrypt parameters are bounded to avoid excessive memory/CPU usage from malformed files.
 - Codes depend on your system time. Keep the computer clock synchronized.
 
@@ -99,6 +99,7 @@ Choose the relevant commands below when verifying changes or preparing a package
 | `npm test` | Run unit tests for TOTP reference vectors, vault imports and encryption, sessions, lock policies, and theme contrast. |
 | `npm run lint` | Run Mozilla's Add-ons Linter against the built extension. |
 | `npm run test:firefox` | Build and run the Firefox integration smoke test. |
+| `npm run screenshots` | Build, run the Firefox smoke test to refresh settings and import screenshots, and capture the dark/light README showcase using public demo accounts. |
 | `npm run package` | Build, lint, and create `artifacts/aegis-viewer-<version>.zip`, using the manifest version. |
 
 Every build includes typechecking. The Firefox smoke test uses a disposable headless profile and public demo secrets to check imports, password handling, code rollover, copy/filtering, locking across views and restarts, appearance settings, and removal. It never opens the user's Firefox profile. Test-only clock and lock-expiry hooks are injected into its disposable archive. Screenshots are written under `artifacts/`, including `preview.png`, `settings-preview.png`, and `settings-dark-preview.png`.

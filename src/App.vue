@@ -366,6 +366,7 @@ onUnmounted(() => {
           <p v-if="!unencrypted" class="privacy">Default: On browser restart. You can always select Lock to lock immediately.</p>
         </div>
       </AnimatedDetails>
+      <details v-if="database?.skipped.length" id="skipped" :open="skippedOpen" @toggle="skippedOpen = ($event.target as HTMLDetailsElement).open" class="help warning"><summary id="skipped-summary">{{ database.skipped.length }} unsupported or invalid entries skipped</summary><ul id="skipped-list"><li v-for="(reason, index) in database.skipped" :key="index">{{ reason }}</li></ul></details>
     </section>
 
     <section id="welcome" :hidden="configOpen || view !== 'welcome'">
@@ -410,7 +411,6 @@ onUnmounted(() => {
       <label class="search-label" for="search">Search accounts</label>
       <input :disabled="busy" id="search" ref="searchInput" v-model="search" type="search" placeholder="Search service or account…" autocomplete="off" spellcheck="false">
       <div id="group" class="group-filters" role="group" aria-label="Filter by group"><button v-for="group in groups" :key="group.value" class="group-badge" type="button" :data-group="group.value" :aria-pressed="selectedGroup === group.value" :disabled="busy" @click="selectedGroup = group.value">{{ group.label }}</button></div>
-      <details id="skipped" :hidden="!database?.skipped.length" :open="skippedOpen" @toggle="skippedOpen = ($event.target as HTMLDetailsElement).open" class="help warning"><summary id="skipped-summary">{{ database?.skipped.length }} unsupported or invalid entries skipped</summary><ul id="skipped-list"><li v-for="(reason, index) in database?.skipped" :key="index">{{ reason }}</li></ul></details>
       <div class="list-heading"><span><span id="list-label">{{ listLabel }}</span><span id="total" class="count" aria-label="Matching accounts">{{ entries.length }}</span></span><span>CLICK A CODE TO COPY</span></div>
       <!-- Destroy the entire list on lock/replacement, bypassing leave animations. -->
       <TransitionGroup v-if="database && !configOpen" :key="epoch" id="entries" class="entries" tag="div" name="account" @before-enter="enableEnteringAccount" @before-leave="disableLeavingAccount">

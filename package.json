@@ -8,6 +8,7 @@
     "build": "npm run typecheck && node scripts/build.mjs",
     "test": "node --experimental-strip-types --test --experimental-test-isolation=none tests/*.test.mjs",
     "test:firefox": "npm run build && python3 scripts/test-firefox.py",
+    "screenshots": "npm run test:firefox && python3 scripts/screenshots.py",
     "lint": "node scripts/lint.mjs",
     "package": "npm run build && npm run lint && python3 scripts/package.py",
     "typecheck": "vue-tsc --noEmit"
