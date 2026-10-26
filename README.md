@@ -13,6 +13,7 @@ A local Firefox extension for viewing TOTP codes from an [Aegis Authenticator](h
 - **Local-only codes:** Import an Aegis JSON export and generate TOTP codes on your device, without servers, uploads, or analytics.
 - **Flexible imports:** Open encrypted or unencrypted exports, with optional password protection for the saved copy of an unencrypted vault.
 - **Search and groups:** Find accounts by service or account name, or filter by Aegis groups, including accounts in multiple groups.
+- **Pin to top:** Pin favorite accounts to keep them first, including in searches and groups. Pins persist across reloads, Firefox restarts, and new JSON imports.
 - **Live countdowns and copy:** See each code's remaining time and click a code to copy it to the clipboard.
 - **Configurable locking:** Lock password-protected vaults manually, on browser restart, or after a selected timeout. Locking applies across open extension views.
 - **Custom appearance:** Choose light or dark mode, use built-in color presets, or set your own background with the inline color picker or a hex value.
@@ -41,7 +42,7 @@ Imports are snapshots. Export and load a new file when your Android vault change
 
 The original Aegis JSON file stays wherever you saved it, such as Downloads. Importing reads that file and saves a separate vault copy in the active Firefox profile; it does not move, modify, or delete the original, and the original is not needed to reopen the imported vault.
 
-- **Saved vault and settings:** The vault is stored under the `vault` key in [`browser.storage.local`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local), alongside lock and appearance preferences. This data persists across Firefox restarts and is not synced through Firefox Sync.
+- **Saved vault and settings:** The vault is stored under the `vault` key in [`browser.storage.local`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/local), alongside lock, appearance, and pin preferences. This data persists across Firefox restarts and is not synced through Firefox Sync.
 - **Encryption:** Encrypted Aegis exports retain their original scrypt/AES-256-GCM encryption. Choosing **Encrypt local copy** for an unencrypted export encrypts the saved copy with AES-256-GCM and PBKDF2-HMAC-SHA-256 (600,000 iterations, a random 32-byte salt and 12-byte IV). Passwords are never saved or cached. Choosing **Import without password** stores plaintext that anyone using this Firefox profile can open, including after a restart; lock controls are unavailable for that vault.
 - **Unlocked vault:** For password-protected vaults, the account data needed to generate codes is cached under `unlockedVault` in Firefox's in-memory [`browser.storage.session`](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/API/storage/session). This API does not save the cache to disk. Locking, automatic lock expiry, removing the vault, restarting Firefox, or disabling/reloading the add-on clears it. The persistent copy stays encrypted. JavaScript does not guarantee immediate physical erasure of memory.
 
@@ -57,7 +58,13 @@ See [Mozilla's profile-folder guide](https://support.mozilla.org/en-US/kb/profil
 
 Firefox manages the saved copy as an IndexedDB database rather than a standalone Aegis JSON file. Its storage is typically under `<profile>/storage/default/moz-extension+++<internal-uuid>^userContextId=4294967295/idb/`; this is a Firefox implementation detail and can change. Find Aegis Viewer's **Internal UUID** on `about:debugging#/runtime/this-firefox` to identify its directory. See [Mozilla's storage directory example](https://bugzilla.mozilla.org/show_bug.cgi?id=1979997). The internal UUID is profile-specific and differs from the add-on ID `firefox-aegis@local.extension`.
 
-**Remove vault** deletes the saved vault and unlocked cache while keeping appearance and lock preferences. It leaves the original export and any backups untouched. Keep your Aegis export as your portable backup; Firefox's internal database files are managed by the browser.
+**Remove vault** deletes the saved vault and unlocked cache while keeping appearance, lock, and pin preferences. It leaves the original export and any backups untouched. Keep your Aegis export as your portable backup; Firefox's internal database files are managed by the browser.
+
+## Pinning accounts
+
+Select the pin icon beside a code to keep that account at the top. Select it again to unpin. Pinned and unpinned accounts each keep their order from the imported file. Search and group filters still apply. Pins sync across open popup and tab views and are independent of the stars imported from Aegis.
+
+Pins are saved locally, separately from the JSON file, and survive loading another export. Accounts are matched by their Aegis UUID, so renaming or reordering them preserves their pins. For exports without UUIDs, matching uses a SHA-256 fingerprint of the service, account name, and normalized secret; those values must stay the same. Pin preferences contain only identifiers and booleans, with no plaintext labels or secrets. Removing the saved vault keeps pin preferences so they are restored on reimport.
 
 ## Locking
 

@@ -1913,8 +1913,216 @@ function createPathGetter(ctx, path) {
 		return cur;
 	};
 }
+var pendingMounts = /* @__PURE__ */ new WeakMap();
 var TeleportEndKey = /* @__PURE__ */ Symbol("_vte");
 var isTeleport = (type) => type.__isTeleport;
+var isTeleportDisabled = (props) => props && (props.disabled || props.disabled === "");
+var isTeleportDeferred = (props) => props && (props.defer || props.defer === "");
+var isTargetSVG = (target) => typeof SVGElement !== "undefined" && target instanceof SVGElement;
+var isTargetMathML = (target) => typeof MathMLElement === "function" && target instanceof MathMLElement;
+var resolveTarget = (props, select) => {
+	const targetSelector = props && props.to;
+	if (isString(targetSelector)) {
+		if (!select) return null;
+		else return select(targetSelector);
+	} else return targetSelector;
+};
+var TeleportImpl = {
+	name: "Teleport",
+	__isTeleport: true,
+	process(n1, n2, container, anchor, parentComponent, parentSuspense, namespace, slotScopeIds, optimized, internals) {
+		const { mc: mountChildren, pc: patchChildren, pbc: patchBlockChildren, o: { insert, querySelector, createText, createComment, parentNode } } = internals;
+		const disabled = isTeleportDisabled(n2.props);
+		let { dynamicChildren } = n2;
+		const mount = (vnode, container2, anchor2) => {
+			if (vnode.shapeFlag & 16) mountChildren(vnode.children, container2, anchor2, parentComponent, parentSuspense, namespace, slotScopeIds, optimized);
+		};
+		const mountToTarget = (vnode = n2) => {
+			const disabled2 = isTeleportDisabled(vnode.props);
+			const target = vnode.target = resolveTarget(vnode.props, querySelector);
+			const targetAnchor = prepareAnchor(target, vnode, createText, insert);
+			if (target) {
+				if (namespace !== "svg" && isTargetSVG(target)) namespace = "svg";
+				else if (namespace !== "mathml" && isTargetMathML(target)) namespace = "mathml";
+				if (parentComponent && parentComponent.isCE) (parentComponent.ce._teleportTargets || (parentComponent.ce._teleportTargets = /* @__PURE__ */ new Set())).add(target);
+				if (!disabled2) {
+					mount(vnode, target, targetAnchor);
+					updateCssVars(vnode, false);
+				}
+			}
+		};
+		const queuePendingMount = (vnode) => {
+			const mountJob = () => {
+				if (pendingMounts.get(vnode) !== mountJob) return;
+				pendingMounts.delete(vnode);
+				if (isTeleportDisabled(vnode.props)) {
+					const mountContainer = parentNode(vnode.el) || container;
+					mount(vnode, mountContainer, vnode.anchor);
+					updateCssVars(vnode, true);
+				}
+				mountToTarget(vnode);
+			};
+			pendingMounts.set(vnode, mountJob);
+			queuePostRenderEffect(mountJob, parentSuspense);
+		};
+		if (n1 == null) {
+			const placeholder = n2.el = createText("");
+			const mainAnchor = n2.anchor = createText("");
+			insert(placeholder, container, anchor);
+			insert(mainAnchor, container, anchor);
+			if (isTeleportDeferred(n2.props) || parentSuspense && parentSuspense.pendingBranch) {
+				queuePendingMount(n2);
+				return;
+			}
+			if (disabled) {
+				mount(n2, container, mainAnchor);
+				updateCssVars(n2, true);
+			}
+			mountToTarget();
+		} else {
+			n2.el = n1.el;
+			const mainAnchor = n2.anchor = n1.anchor;
+			const pendingMount = pendingMounts.get(n1);
+			if (pendingMount) {
+				pendingMount.flags |= 8;
+				pendingMounts.delete(n1);
+				queuePendingMount(n2);
+				return;
+			}
+			n2.targetStart = n1.targetStart;
+			const target = n2.target = n1.target;
+			const targetAnchor = n2.targetAnchor = n1.targetAnchor;
+			const wasDisabled = isTeleportDisabled(n1.props);
+			const currentContainer = wasDisabled ? container : target;
+			const currentAnchor = wasDisabled ? mainAnchor : targetAnchor;
+			if (namespace === "svg" || isTargetSVG(target)) namespace = "svg";
+			else if (namespace === "mathml" || isTargetMathML(target)) namespace = "mathml";
+			if (dynamicChildren) {
+				patchBlockChildren(n1.dynamicChildren, dynamicChildren, currentContainer, parentComponent, parentSuspense, namespace, slotScopeIds);
+				traverseStaticChildren(n1, n2, true);
+			} else if (!optimized) patchChildren(n1, n2, currentContainer, currentAnchor, parentComponent, parentSuspense, namespace, slotScopeIds, false);
+			if (disabled) {
+				if (!wasDisabled) moveTeleport(n2, container, mainAnchor, internals, 1);
+				else if (n2.props && n1.props && n2.props.to !== n1.props.to) n2.props.to = n1.props.to;
+			} else if ((n2.props && n2.props.to) !== (n1.props && n1.props.to)) {
+				const nextTarget = resolveTarget(n2.props, querySelector);
+				if (nextTarget) {
+					n2.target = nextTarget;
+					moveTeleport(n2, nextTarget, null, internals, 0);
+				}
+			} else if (wasDisabled) moveTeleport(n2, target, targetAnchor, internals, 1);
+			updateCssVars(n2, disabled);
+		}
+	},
+	remove(vnode, parentComponent, parentSuspense, { um: unmount, o: { remove: hostRemove } }, doRemove) {
+		const { shapeFlag, children, anchor, targetStart, targetAnchor, target, props } = vnode;
+		const disabled = isTeleportDisabled(props);
+		const shouldRemove = doRemove || !disabled;
+		const pendingMount = pendingMounts.get(vnode);
+		if (pendingMount) {
+			pendingMount.flags |= 8;
+			pendingMounts.delete(vnode);
+		}
+		if (target) {
+			hostRemove(targetStart);
+			hostRemove(targetAnchor);
+		}
+		doRemove && hostRemove(anchor);
+		if (!pendingMount && (disabled || target) && shapeFlag & 16) for (let i = 0; i < children.length; i++) {
+			const child = children[i];
+			unmount(child, parentComponent, parentSuspense, shouldRemove, !!child.dynamicChildren);
+		}
+	},
+	move: moveTeleport,
+	hydrate: hydrateTeleport
+};
+function moveTeleport(vnode, container, parentAnchor, { o: { insert }, m: move }, moveType = 2) {
+	if (moveType === 0) {
+		if (vnode.targetStart) insert(vnode.targetStart, container, parentAnchor);
+		insert(vnode.targetAnchor, container, parentAnchor);
+		parentAnchor = vnode.targetAnchor;
+	}
+	const { el, anchor, shapeFlag, children, props } = vnode;
+	const isReorder = moveType === 2;
+	if (isReorder) insert(el, container, parentAnchor);
+	if (!pendingMounts.has(vnode) && (!isReorder || isTeleportDisabled(props))) {
+		if (shapeFlag & 16) for (let i = 0; i < children.length; i++) move(children[i], container, parentAnchor, 2);
+	}
+	if (isReorder) insert(anchor, container, parentAnchor);
+}
+function hydrateTeleport(node, vnode, parentComponent, parentSuspense, slotScopeIds, optimized, { o: { nextSibling, parentNode, querySelector, insert, createText } }, hydrateChildren) {
+	function hydrateAnchor(target2, targetNode) {
+		let targetAnchor = targetNode;
+		while (targetAnchor) {
+			if (targetAnchor && targetAnchor.nodeType === 8) {
+				if (targetAnchor.data === "teleport start anchor") vnode.targetStart = targetAnchor;
+				else if (targetAnchor.data === "teleport anchor") {
+					vnode.targetAnchor = targetAnchor;
+					target2._lpa = vnode.targetAnchor && nextSibling(vnode.targetAnchor);
+					break;
+				}
+			}
+			targetAnchor = nextSibling(targetAnchor);
+		}
+	}
+	function hydrateDisabledTeleport(node2, vnode2) {
+		vnode2.anchor = hydrateChildren(nextSibling(node2), vnode2, parentNode(node2), parentComponent, parentSuspense, slotScopeIds, optimized);
+	}
+	const target = vnode.target = resolveTarget(vnode.props, querySelector);
+	const disabled = isTeleportDisabled(vnode.props);
+	if (target) {
+		const targetNode = target._lpa || target.firstChild;
+		if (vnode.shapeFlag & 16) {
+			if (disabled) {
+				hydrateDisabledTeleport(node, vnode);
+				hydrateAnchor(target, targetNode);
+				if (!vnode.targetAnchor) prepareAnchor(target, vnode, createText, insert, parentNode(node) === target ? node : null);
+			} else {
+				vnode.anchor = nextSibling(node);
+				hydrateAnchor(target, targetNode);
+				if (!vnode.targetAnchor) prepareAnchor(target, vnode, createText, insert);
+				hydrateChildren(targetNode && nextSibling(targetNode), vnode, target, parentComponent, parentSuspense, slotScopeIds, optimized);
+			}
+		}
+		updateCssVars(vnode, disabled);
+	} else if (disabled) {
+		if (vnode.shapeFlag & 16) {
+			hydrateDisabledTeleport(node, vnode);
+			vnode.targetStart = node;
+			vnode.targetAnchor = nextSibling(node);
+		}
+	}
+	return vnode.anchor && nextSibling(vnode.anchor);
+}
+var Teleport = TeleportImpl;
+function updateCssVars(vnode, isDisabled) {
+	const ctx = vnode.ctx;
+	if (ctx && ctx.ut) {
+		let node, anchor;
+		if (isDisabled) {
+			node = vnode.el;
+			anchor = vnode.anchor;
+		} else {
+			node = vnode.targetStart;
+			anchor = vnode.targetAnchor;
+		}
+		while (node && node !== anchor) {
+			if (node.nodeType === 1) node.setAttribute("data-v-owner", ctx.uid);
+			node = node.nextSibling;
+		}
+		ctx.ut();
+	}
+}
+function prepareAnchor(target, vnode, createText, insert, anchor = null) {
+	const targetStart = vnode.targetStart = createText("");
+	const targetAnchor = vnode.targetAnchor = createText("");
+	targetStart[TeleportEndKey] = targetAnchor;
+	if (target) {
+		insert(targetStart, target, anchor);
+		insert(targetAnchor, target, anchor);
+	}
+	return targetAnchor;
+}
 var leaveCbKey = /* @__PURE__ */ Symbol("_leaveCb");
 var enterCbKey$1 = /* @__PURE__ */ Symbol("_enterCb");
 function useTransitionState() {
@@ -1950,6 +2158,57 @@ var BaseTransitionPropsValidators = {
 	onAfterAppear: TransitionHookValidator,
 	onAppearCancelled: TransitionHookValidator
 };
+var BaseTransitionImpl = {
+	name: `BaseTransition`,
+	props: BaseTransitionPropsValidators,
+	setup(props, { slots }) {
+		const instance = getCurrentInstance();
+		const state = useTransitionState();
+		return () => {
+			const children = slots.default && getTransitionRawChildren(slots.default(), true);
+			const child = children && children.length ? findNonCommentChild(children) : instance.subTree ? createCommentVNode() : void 0;
+			if (!child) return;
+			const rawProps = /* @__PURE__ */ toRaw(props);
+			const { mode } = rawProps;
+			if (state.isLeaving) return emptyPlaceholder(child);
+			const innerChild = getInnerChild$1(child);
+			if (!innerChild) return emptyPlaceholder(child);
+			let enterHooks = resolveTransitionHooks(innerChild, rawProps, state, instance, (hooks) => enterHooks = hooks);
+			if (innerChild.type !== Comment) setTransitionHooks(innerChild, enterHooks);
+			let oldInnerChild = instance.subTree && getInnerChild$1(instance.subTree);
+			if (oldInnerChild && oldInnerChild.type !== Comment && !isSameVNodeType(oldInnerChild, innerChild) && getTransitionRoot(instance.subTree)) {
+				let leavingHooks = resolveTransitionHooks(oldInnerChild, rawProps, state, instance);
+				setTransitionHooks(oldInnerChild, leavingHooks);
+				if (mode === "out-in" && innerChild.type !== Comment) {
+					state.isLeaving = true;
+					leavingHooks.afterLeave = () => {
+						state.isLeaving = false;
+						if (!(instance.job.flags & 8)) instance.update();
+						delete leavingHooks.afterLeave;
+						oldInnerChild = void 0;
+					};
+					return emptyPlaceholder(child);
+				} else if (mode === "in-out" && innerChild.type !== Comment) leavingHooks.delayLeave = (el, earlyRemove, delayedLeave) => {
+					const leavingVNodesCache = getLeavingNodesForType(state, oldInnerChild);
+					leavingVNodesCache[String(oldInnerChild.key)] = oldInnerChild;
+					el[leaveCbKey] = () => {
+						earlyRemove();
+						el[leaveCbKey] = void 0;
+						delete enterHooks.delayedLeave;
+						oldInnerChild = void 0;
+					};
+					enterHooks.delayedLeave = () => {
+						delayedLeave();
+						delete enterHooks.delayedLeave;
+						oldInnerChild = void 0;
+					};
+				};
+				else oldInnerChild = void 0;
+			} else if (oldInnerChild) oldInnerChild = void 0;
+			return child;
+		};
+	}
+};
 function findNonCommentChild(children) {
 	let child = children[0];
 	if (children.length > 1) {
@@ -1960,6 +2219,7 @@ function findNonCommentChild(children) {
 	}
 	return child;
 }
+var BaseTransition = BaseTransitionImpl;
 function getLeavingNodesForType(state, vnode) {
 	const { leavingVNodes } = state;
 	let leavingVNodesCache = leavingVNodes.get(vnode.type);
@@ -2056,6 +2316,13 @@ function resolveTransitionHooks(vnode, props, state, instance, postClone) {
 		}
 	};
 	return hooks;
+}
+function emptyPlaceholder(vnode) {
+	if (isKeepAlive(vnode)) {
+		vnode = cloneVNode(vnode);
+		vnode.children = null;
+		return vnode;
+	}
 }
 function getInnerChild$1(vnode) {
 	if (!isKeepAlive(vnode)) {
@@ -4047,11 +4314,6 @@ function cloneVNode(vnode, extraProps, mergeRef = false, cloneTransition = false
 function createTextVNode(text = " ", flag = 0) {
 	return createVNode(Text, null, text, flag);
 }
-function createStaticVNode(content, numberOfNodes) {
-	const vnode = createVNode(Static, null, content);
-	vnode.staticCount = numberOfNodes;
-	return vnode;
-}
 function createCommentVNode(text = "", asBlock = false) {
 	return asBlock ? (openBlock(), createBlock(Comment, null, text)) : createVNode(Comment, null, text);
 }
@@ -4336,6 +4598,24 @@ function isClassComponent(value) {
 var computed = (getterOrOptions, debugOptions) => {
 	return /* @__PURE__ */ computed$1(getterOrOptions, debugOptions, isInSSRComponentSetup);
 };
+function h(type, propsOrChildren, children) {
+	try {
+		setBlockTracking(-1);
+		const l = arguments.length;
+		if (l === 2) {
+			if (isObject(propsOrChildren) && !isArray(propsOrChildren)) {
+				if (isVNode(propsOrChildren)) return createVNode(type, null, [propsOrChildren]);
+				return createVNode(type, propsOrChildren);
+			} else return createVNode(type, null, propsOrChildren);
+		} else {
+			if (l > 3) children = Array.prototype.slice.call(arguments, 2);
+			else if (l === 3 && isVNode(children)) children = [children];
+			return createVNode(type, propsOrChildren, children);
+		}
+	} finally {
+		setBlockTracking(1);
+	}
+}
 var version = "3.5.44";
 // node_modules/@vue/runtime-dom/dist/runtime-dom.esm-bundler.js
 /**
@@ -4425,6 +4705,12 @@ var DOMTransitionPropsValidators = {
 	leaveToClass: String
 };
 var TransitionPropsValidators = /* @__PURE__ */ extend({}, BaseTransitionPropsValidators, DOMTransitionPropsValidators);
+var decorate$1 = (t) => {
+	t.displayName = "Transition";
+	t.props = TransitionPropsValidators;
+	return t;
+};
+var Transition = /* @__PURE__ */ decorate$1((props, { slots }) => h(BaseTransition, resolveTransitionProps(props), slots));
 var callHook = (hook, args = []) => {
 	if (isArray(hook)) hook.forEach((h2) => h2(...args));
 	else if (hook) hook(...args);
@@ -5968,6 +6254,23 @@ async function generateTotp(token, timestamp = Date.now()) {
 		step: Math.floor(seconds / token.period)
 	};
 }
+// src/pins.ts
+var PIN_KEY_PREFIX = "pinnedAccount:";
+async function accountPinId(entry) {
+	if (typeof entry.uuid === "string" && entry.uuid.trim()) return `uuid:${entry.uuid.trim().toLowerCase()}`;
+	const secret = String(entry.info?.secret ?? "").toUpperCase().replace(/\s/g, "").replace(/=+$/, "");
+	const identity = new TextEncoder().encode(JSON.stringify([
+		entry.issuer || "",
+		entry.name || "",
+		secret
+	]));
+	try {
+		const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", identity));
+		return `hash:${Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+	} finally {
+		identity.fill(0);
+	}
+}
 var encoder = new TextEncoder();
 var decoder = new TextDecoder("utf-8", { fatal: true });
 var ITERATIONS = 6e5;
@@ -6097,6 +6400,7 @@ async function normalizeDatabase(db) {
 			}
 			entries.push({
 				id: `entry-${index}`,
+				pinId: await accountPinId(entry),
 				issuer: String(entry.issuer || ""),
 				name: String(entry.name || ""),
 				favorite: entry.favorite === true,
@@ -6208,6 +6512,7 @@ function createSessionStore(storage, readSetting = async () => "restart", now = 
 				version: database.version,
 				groups: database.groups ?? [],
 				entries: database.entries.map((entry) => ({
+					uuid: entry?.uuid,
 					type: entry?.type,
 					name: entry?.name,
 					issuer: entry?.issuer,
@@ -6439,6 +6744,12 @@ var _hoisted_9$1 = [
 	"value",
 	"aria-label"
 ];
+var _hoisted_10$1 = [
+	"disabled",
+	"aria-pressed",
+	"title",
+	"aria-label"
+];
 // src/components/AccountCard.vue
 var AccountCard_default = /* @__PURE__ */ defineComponent({
 	__name: "AccountCard",
@@ -6446,9 +6757,10 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 		entry: {},
 		now: {},
 		groupNames: {},
-		busy: { type: Boolean }
+		busy: { type: Boolean },
+		pinned: { type: Boolean }
 	},
-	emits: ["notify"],
+	emits: ["togglePin", "notify"],
 	setup(__props, { emit: __emit }) {
 		const props = __props;
 		const emit = __emit;
@@ -6490,7 +6802,10 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 				const result = await generateTotp(props.entry.token);
 				if (disposed) return;
 				await navigator.clipboard.writeText(result.code);
-				if (!disposed) copyShine.value += 1;
+				if (!disposed) {
+					copyShine.value += 1;
+					emit("notify", "Code copied.", false, true);
+				}
 			} catch {
 				if (!disposed) emit("notify", "Could not copy the code. You can select and copy it manually.", true);
 			}
@@ -6500,7 +6815,10 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 			disposed = true;
 		});
 		return (_ctx, _cache) => {
-			return openBlock(), createElementBlock("article", { class: normalizeClass(["entry", { expiring: remaining.value <= 5 }]) }, [
+			return openBlock(), createElementBlock("article", { class: normalizeClass(["entry", {
+				expiring: remaining.value <= 5,
+				pinned: __props.pinned
+			}]) }, [
 				copyShine.value ? (openBlock(), createElementBlock("span", {
 					key: copyShine.value,
 					class: "copy-shine",
@@ -6531,8 +6849,114 @@ var AccountCard_default = /* @__PURE__ */ defineComponent({
 						animationDelay: timer.value.delay
 					}),
 					"aria-hidden": "true"
-				}, null, 4))])])
+				}, null, 4))])]),
+				createBaseVNode("button", {
+					class: "icon-button pin-button",
+					type: "button",
+					disabled: __props.busy,
+					"aria-pressed": __props.pinned,
+					title: __props.pinned ? "Unpin" : "Pin to top",
+					"aria-label": `${__props.pinned ? "Unpin" : "Pin to top:"} ${title.value}${__props.entry.issuer && __props.entry.name ? `, ${__props.entry.name}` : ""}`,
+					onClick: _cache[0] || (_cache[0] = ($event) => emit("togglePin"))
+				}, [..._cache[1] || (_cache[1] = [createBaseVNode("svg", {
+					"aria-hidden": "true",
+					width: "18",
+					height: "18",
+					viewBox: "0 0 24 24",
+					fill: "none",
+					stroke: "currentColor",
+					"stroke-width": "1.7",
+					"stroke-linecap": "round",
+					"stroke-linejoin": "round"
+				}, [createBaseVNode("path", {
+					class: "pin-head",
+					d: "M8 3h8l-1 6 3 4v2H6v-2l3-4z"
+				}), createBaseVNode("path", { d: "M12 15v6" })], -1)])], 8, _hoisted_10$1)
 			], 2);
+		};
+	}
+});
+// src/components/NotificationToast.vue
+var NotificationToast_default = /* @__PURE__ */ defineComponent({
+	__name: "NotificationToast",
+	props: { anchor: {} },
+	setup(__props, { expose: __expose }) {
+		const props = __props;
+		const message = /* @__PURE__ */ ref(""), error = /* @__PURE__ */ ref(false), visible = /* @__PURE__ */ ref(false);
+		const position = /* @__PURE__ */ ref({ visibility: "hidden" });
+		let timer;
+		function updatePosition() {
+			if (!props.anchor) return;
+			const rect = props.anchor.getBoundingClientRect();
+			position.value = {
+				top: `${Math.max(12, rect.top)}px`,
+				left: `${rect.left}px`,
+				width: `${rect.width}px`,
+				minHeight: `${rect.height}px`
+			};
+		}
+		const observer = new ResizeObserver(updatePosition);
+		watch(() => props.anchor, (anchor, previous) => {
+			if (previous) observer.unobserve(previous);
+			if (anchor) observer.observe(anchor);
+			updatePosition();
+		}, { flush: "post" });
+		function dismiss() {
+			clearTimeout(timer);
+			visible.value = false;
+		}
+		function show(text, options = {}) {
+			clearTimeout(timer);
+			if (!text) {
+				dismiss();
+				return;
+			}
+			message.value = text;
+			error.value = options.error ?? false;
+			updatePosition();
+			visible.value = true;
+			const duration = options.duration ?? 3500;
+			if (duration > 0) timer = setTimeout(dismiss, duration);
+		}
+		function afterLeave() {
+			if (!visible.value) {
+				message.value = "";
+				error.value = false;
+			}
+		}
+		onMounted(() => {
+			updatePosition();
+			window.addEventListener("resize", updatePosition);
+			window.addEventListener("scroll", updatePosition, true);
+		});
+		onUnmounted(() => {
+			clearTimeout(timer);
+			observer.disconnect();
+			window.removeEventListener("resize", updatePosition);
+			window.removeEventListener("scroll", updatePosition, true);
+		});
+		__expose({
+			show,
+			dismiss
+		});
+		return (_ctx, _cache) => {
+			return openBlock(), createBlock(Teleport, { to: "body" }, [createBaseVNode("div", {
+				class: "notification-host",
+				style: normalizeStyle(position.value),
+				role: "status",
+				"aria-live": "polite",
+				"aria-atomic": "true"
+			}, [createVNode(Transition, {
+				name: "notification",
+				onAfterLeave: afterLeave,
+				persisted: ""
+			}, {
+				default: withCtx(() => [withDirectives(createBaseVNode("div", {
+					id: "status",
+					class: normalizeClass(["status", { error: error.value }])
+				}, toDisplayString(message.value), 3), [[vShow, visible.value]])]),
+				_: 1
+			})], 4)]);
 		};
 	}
 });
@@ -6697,93 +7121,92 @@ var _hoisted_2 = [
 var _hoisted_3 = ["hidden", "disabled"];
 var _hoisted_4 = ["disabled"];
 var _hoisted_5 = ["hidden"];
-var _hoisted_6 = ["hidden"];
-var _hoisted_7 = ["disabled"];
-var _hoisted_8 = {
+var _hoisted_6 = ["disabled"];
+var _hoisted_7 = {
 	class: "theme-modes",
 	role: "group",
 	"aria-label": "Color mode"
 };
+var _hoisted_8 = ["aria-pressed"];
 var _hoisted_9 = ["aria-pressed"];
-var _hoisted_10 = ["aria-pressed"];
-var _hoisted_11 = ["aria-labelledby"];
+var _hoisted_10 = ["aria-labelledby"];
+var _hoisted_11 = ["id"];
 var _hoisted_12 = ["id"];
-var _hoisted_13 = ["id"];
-var _hoisted_14 = ["aria-pressed", "onClick"];
-var _hoisted_15 = { class: "custom-color-row" };
-var _hoisted_16 = ["aria-expanded"];
-var _hoisted_17 = ["aria-invalid", "aria-describedby"];
-var _hoisted_18 = ["disabled"];
-var _hoisted_19 = { class: "settings-content" };
-var _hoisted_20 = ["value", "disabled"];
-var _hoisted_21 = ["value"];
-var _hoisted_22 = {
+var _hoisted_13 = ["aria-pressed", "onClick"];
+var _hoisted_14 = { class: "custom-color-row" };
+var _hoisted_15 = ["aria-expanded"];
+var _hoisted_16 = ["aria-invalid", "aria-describedby"];
+var _hoisted_17 = ["disabled"];
+var _hoisted_18 = { class: "settings-content" };
+var _hoisted_19 = ["value", "disabled"];
+var _hoisted_20 = ["value"];
+var _hoisted_21 = {
 	id: "lock-help",
 	class: "intro"
 };
-var _hoisted_23 = { key: 0 };
-var _hoisted_24 = {
+var _hoisted_22 = { key: 0 };
+var _hoisted_23 = {
 	key: 0,
 	class: "privacy"
 };
-var _hoisted_25 = ["open"];
-var _hoisted_26 = { id: "skipped-summary" };
-var _hoisted_27 = { id: "skipped-list" };
-var _hoisted_28 = ["hidden"];
-var _hoisted_29 = ["disabled"];
-var _hoisted_30 = ["hidden"];
+var _hoisted_24 = ["open"];
+var _hoisted_25 = { id: "skipped-summary" };
+var _hoisted_26 = { id: "skipped-list" };
+var _hoisted_27 = ["hidden"];
+var _hoisted_28 = ["disabled"];
+var _hoisted_29 = ["hidden"];
+var _hoisted_30 = ["disabled"];
 var _hoisted_31 = ["disabled"];
-var _hoisted_32 = ["disabled"];
-var _hoisted_33 = { class: "privacy" };
-var _hoisted_34 = ["hidden"];
-var _hoisted_35 = { id: "import-title" };
-var _hoisted_36 = {
+var _hoisted_32 = { class: "privacy" };
+var _hoisted_33 = ["hidden"];
+var _hoisted_34 = { id: "import-title" };
+var _hoisted_35 = {
 	id: "import-description",
 	class: "intro"
 };
-var _hoisted_37 = ["disabled"];
-var _hoisted_38 = { for: "import-without-password" };
-var _hoisted_39 = { for: "encrypt-local" };
-var _hoisted_40 = {
+var _hoisted_36 = ["disabled"];
+var _hoisted_37 = { for: "import-without-password" };
+var _hoisted_38 = { for: "encrypt-local" };
+var _hoisted_39 = {
 	id: "import-label",
 	for: "import-secret"
 };
-var _hoisted_41 = ["disabled", "autocomplete"];
-var _hoisted_42 = {
+var _hoisted_40 = ["disabled", "autocomplete"];
+var _hoisted_41 = {
 	key: 0,
 	id: "confirm-wrap"
 };
+var _hoisted_42 = ["disabled"];
 var _hoisted_43 = ["disabled"];
-var _hoisted_44 = ["disabled"];
-var _hoisted_45 = ["hidden"];
-var _hoisted_46 = ["disabled"];
-var _hoisted_47 = {
+var _hoisted_44 = ["hidden"];
+var _hoisted_45 = ["disabled"];
+var _hoisted_46 = {
 	id: "group",
 	class: "group-filters",
 	role: "group",
 	"aria-label": "Filter by group"
 };
-var _hoisted_48 = [
+var _hoisted_47 = [
 	"data-group",
 	"aria-pressed",
 	"disabled",
 	"onClick"
 ];
-var _hoisted_49 = { class: "list-heading" };
-var _hoisted_50 = { id: "list-label" };
-var _hoisted_51 = {
+var _hoisted_48 = { class: "list-heading" };
+var _hoisted_49 = { id: "list-label" };
+var _hoisted_50 = {
 	id: "total",
 	class: "count",
 	"aria-label": "Matching accounts"
 };
-var _hoisted_52 = { class: "entry-clip" };
-var _hoisted_53 = ["hidden"];
+var _hoisted_51 = { class: "entry-clip" };
+var _hoisted_52 = ["hidden"];
+var _hoisted_53 = ["disabled", "hidden"];
 var _hoisted_54 = ["disabled", "hidden"];
-var _hoisted_55 = ["disabled", "hidden"];
-var _hoisted_56 = ["disabled"];
-var _hoisted_57 = { class: "form-actions" };
+var _hoisted_55 = ["disabled"];
+var _hoisted_56 = { class: "form-actions" };
+var _hoisted_57 = ["disabled"];
 var _hoisted_58 = ["disabled"];
-var _hoisted_59 = ["disabled"];
 // src/App.vue
 var App_default = /* @__PURE__ */ defineComponent({
 	__name: "App",
@@ -6834,8 +7257,28 @@ var App_default = /* @__PURE__ */ defineComponent({
 		const saved = /* @__PURE__ */ shallowRef(null);
 		const pending = /* @__PURE__ */ shallowRef(null);
 		const database = /* @__PURE__ */ shallowRef(null);
-		const busy = /* @__PURE__ */ ref(false), status = /* @__PURE__ */ ref(""), statusError = /* @__PURE__ */ ref(false);
+		const busy = /* @__PURE__ */ ref(false);
+		const notification = /* @__PURE__ */ ref();
+		const notificationAnchor = /* @__PURE__ */ ref();
 		const selectedGroup = /* @__PURE__ */ ref("all"), search = /* @__PURE__ */ ref("");
+		const pinnedAccounts = /* @__PURE__ */ ref(/* @__PURE__ */ new Set());
+		async function readPins() {
+			const settings = await browser.storage.local.get(null);
+			pinnedAccounts.value = new Set(Object.keys(settings).filter((key) => key.startsWith("pinnedAccount:") && settings[key] === true).map((key) => key.slice(PIN_KEY_PREFIX.length)));
+		}
+		function togglePin(pinId) {
+			task("", async () => {
+				const key = PIN_KEY_PREFIX + pinId;
+				const pinned = !pinnedAccounts.value.has(pinId);
+				if (pinned) await browser.storage.local.set({ [key]: true });
+				else await browser.storage.local.remove(key);
+				const next = new Set(pinnedAccounts.value);
+				if (pinned) next.add(pinId);
+				else next.delete(pinId);
+				pinnedAccounts.value = next;
+				notify(pinned ? "Account pinned to top." : "Account unpinned.", false, true);
+			});
+		}
 		watch(search, (query) => {
 			if (query.length > 0) selectedGroup.value = "all";
 		});
@@ -6897,7 +7340,6 @@ var App_default = /* @__PURE__ */ defineComponent({
 		function visible() {
 			if (!document.hidden) tick();
 		}
-		let statusTimer;
 		async function readLockSetting() {
 			const settings = await browser.storage.local.get(LOCK_SETTING_KEY);
 			lockSetting.value = lockAfter(settings[LOCK_SETTING_KEY]);
@@ -6934,14 +7376,14 @@ var App_default = /* @__PURE__ */ defineComponent({
 			const query = search.value.toLocaleLowerCase().trim(), selected = selectedGroup.value;
 			return database.value?.entries.filter((entry) => {
 				return (selected === "all" || selected.startsWith("group:") && entry.groups.includes(selected.slice(6))) && `${entry.issuer} ${entry.name}`.toLocaleLowerCase().includes(query);
-			}) ?? [];
+			}).sort((a, b) => Number(pinnedAccounts.value.has(b.pinId)) - Number(pinnedAccounts.value.has(a.pinId))) ?? [];
 		});
 		const listLabel = computed(() => selectedGroup.value.startsWith("group:") ? groupNames.value.get(selectedGroup.value.slice(6))?.toUpperCase() : "ALL ACCOUNTS");
 		function notify(message, error = false, temporary = false) {
-			clearTimeout(statusTimer);
-			status.value = message;
-			statusError.value = error;
-			if (temporary) statusTimer = setTimeout(() => notify(""), 3500);
+			notification.value?.show(message, {
+				error,
+				duration: temporary ? 3500 : 0
+			});
 		}
 		function enableEnteringAccount(element) {
 			if (element instanceof HTMLElement) element.inert = false;
@@ -7116,6 +7558,16 @@ var App_default = /* @__PURE__ */ defineComponent({
 			else lock();
 		}
 		const storageChanged = (changes, area) => {
+			if (area === "local") {
+				const next = new Set(pinnedAccounts.value);
+				for (const [key, change] of Object.entries(changes)) {
+					if (!key.startsWith("pinnedAccount:")) continue;
+					const id = key.slice(PIN_KEY_PREFIX.length);
+					if (change.newValue === true) next.add(id);
+					else next.delete(id);
+				}
+				pinnedAccounts.value = next;
+			}
 			if (area === "local" && changes["themeMode"]) {
 				selectedMode.value = themeMode(changes[THEME_MODE_SETTING_KEY].newValue);
 				applyTheme(selectedColor.value, selectedMode.value);
@@ -7141,6 +7593,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 			browser.storage.onChanged.addListener(storageChanged);
 			task("Opening local vault…", async () => {
 				await readTheme();
+				await readPins();
 				await refreshVault(true);
 			});
 		});
@@ -7152,12 +7605,46 @@ var App_default = /* @__PURE__ */ defineComponent({
 			document.removeEventListener("visibilitychange", visible);
 			window.removeEventListener("pagehide", resetSecrets);
 			browser.storage.onChanged.removeListener(storageChanged);
-			clearTimeout(statusTimer);
 			resetSecrets();
 		});
 		return (_ctx, _cache) => {
-			return openBlock(), createElementBlock("main", null, [
-				createBaseVNode("header", null, [_cache[17] || (_cache[17] = createStaticVNode("<div class=\"brand\"><svg class=\"brand-icon\" aria-hidden=\"true\" width=\"32\" height=\"32\" viewBox=\"0 0 64 64\"><rect width=\"64\" height=\"64\" rx=\"18\" fill=\"var(--accent)\"></rect><path d=\"M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"3.5\"></path><path d=\"M24 40 32 23 40 40M27 34h10\" fill=\"none\" stroke=\"var(--on-accent)\" stroke-width=\"4\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path></svg><h1>Aegis Viewer</h1></div>", 1)), createBaseVNode("div", _hoisted_1, [
+			return openBlock(), createElementBlock(Fragment, null, [createVNode(NotificationToast_default, {
+				ref_key: "notification",
+				ref: notification,
+				anchor: notificationAnchor.value
+			}, null, 8, ["anchor"]), createBaseVNode("main", null, [
+				createBaseVNode("header", null, [createBaseVNode("div", {
+					ref_key: "notificationAnchor",
+					ref: notificationAnchor,
+					class: "brand"
+				}, [..._cache[14] || (_cache[14] = [createBaseVNode("svg", {
+					class: "brand-icon",
+					"aria-hidden": "true",
+					width: "32",
+					height: "32",
+					viewBox: "0 0 64 64"
+				}, [
+					createBaseVNode("rect", {
+						width: "64",
+						height: "64",
+						rx: "18",
+						fill: "var(--accent)"
+					}),
+					createBaseVNode("path", {
+						d: "M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z",
+						fill: "none",
+						stroke: "var(--on-accent)",
+						"stroke-width": "3.5"
+					}),
+					createBaseVNode("path", {
+						d: "M24 40 32 23 40 40M27 34h10",
+						fill: "none",
+						stroke: "var(--on-accent)",
+						"stroke-width": "4",
+						"stroke-linecap": "round",
+						"stroke-linejoin": "round"
+					})
+				], -1), createBaseVNode("h1", null, "Aegis Viewer", -1)])], 512), createBaseVNode("div", _hoisted_1, [
 					createBaseVNode("button", {
 						disabled: busy.value || view.value === "import-password",
 						id: "config",
@@ -7166,7 +7653,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						"aria-pressed": configOpen.value,
 						title: configOpen.value ? "Back" : "Settings",
 						"aria-label": configOpen.value ? "Back" : "Settings"
-					}, [..._cache[14] || (_cache[14] = [createBaseVNode("svg", {
+					}, [..._cache[15] || (_cache[15] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7183,7 +7670,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						class: "icon-button",
 						title: "Lock vault",
 						"aria-label": "Lock vault"
-					}, [..._cache[15] || (_cache[15] = [createBaseVNode("svg", {
+					}, [..._cache[16] || (_cache[16] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7202,7 +7689,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 						class: "icon-button",
 						title: "Open in a tab",
 						"aria-label": "Open in a tab"
-					}, [..._cache[16] || (_cache[16] = [createBaseVNode("svg", {
+					}, [..._cache[17] || (_cache[17] = [createBaseVNode("svg", {
 						"aria-hidden": "true",
 						xmlns: "http://www.w3.org/2000/svg",
 						width: "18",
@@ -7223,13 +7710,6 @@ var App_default = /* @__PURE__ */ defineComponent({
 					ref: viewStage,
 					class: "view-stage"
 				}, [
-					createBaseVNode("div", {
-						id: "status",
-						hidden: !status.value,
-						class: normalizeClass([{ error: statusError.value }, "status"]),
-						role: "status",
-						"aria-live": "polite"
-					}, toDisplayString(status.value), 11, _hoisted_5),
 					createBaseVNode("section", {
 						id: "settings",
 						hidden: !configOpen.value,
@@ -7246,26 +7726,26 @@ var App_default = /* @__PURE__ */ defineComponent({
 								disabled: busy.value,
 								"aria-labelledby": "appearance-label"
 							}, [
-								createBaseVNode("div", _hoisted_8, [createBaseVNode("button", {
+								createBaseVNode("div", _hoisted_7, [createBaseVNode("button", {
 									id: "theme-light",
 									type: "button",
 									class: "theme-mode",
 									"aria-pressed": selectedMode.value === "light",
 									onClick: _cache[0] || (_cache[0] = ($event) => saveThemeMode("light"))
-								}, "Light", 8, _hoisted_9), createBaseVNode("button", {
+								}, "Light", 8, _hoisted_8), createBaseVNode("button", {
 									id: "theme-dark",
 									type: "button",
 									class: "theme-mode",
 									"aria-pressed": selectedMode.value === "dark",
 									onClick: _cache[1] || (_cache[1] = ($event) => saveThemeMode("dark"))
-								}, "Dark", 8, _hoisted_10)]),
+								}, "Dark", 8, _hoisted_9)]),
 								(openBlock(true), createElementBlock(Fragment, null, renderList(unref(THEME_GROUPS), (group) => {
 									return openBlock(), createElementBlock("div", {
 										key: group.mode,
 										class: "theme-group",
 										role: "group",
 										"aria-labelledby": `themes-${group.mode}-label`
-									}, [createBaseVNode("h3", { id: `themes-${group.mode}-label` }, toDisplayString(group.label), 9, _hoisted_12), createBaseVNode("div", {
+									}, [createBaseVNode("h3", { id: `themes-${group.mode}-label` }, toDisplayString(group.label), 9, _hoisted_11), createBaseVNode("div", {
 										id: `themes-${group.mode}`,
 										class: "theme-presets"
 									}, [(openBlock(true), createElementBlock(Fragment, null, renderList(group.themes, (theme) => {
@@ -7282,15 +7762,15 @@ var App_default = /* @__PURE__ */ defineComponent({
 												color: theme.mode === "light" ? "#111111" : "#ffffff"
 											}),
 											"aria-hidden": "true"
-										}, toDisplayString(selectedColor.value === theme.color && selectedMode.value === theme.mode ? "✓" : ""), 5), createTextVNode(" " + toDisplayString(theme.name), 1)], 8, _hoisted_14);
-									}), 128))], 8, _hoisted_13)], 8, _hoisted_11);
+										}, toDisplayString(selectedColor.value === theme.color && selectedMode.value === theme.mode ? "✓" : ""), 5), createTextVNode(" " + toDisplayString(theme.name), 1)], 8, _hoisted_13);
+									}), 128))], 8, _hoisted_12)], 8, _hoisted_10);
 								}), 128)),
 								createBaseVNode("form", {
 									id: "custom-theme-form",
 									onSubmit: _cache[4] || (_cache[4] = withModifiers(($event) => validCustomColor.value && saveTheme(validCustomColor.value), ["prevent"]))
 								}, [
 									_cache[18] || (_cache[18] = createBaseVNode("label", { for: "theme-hex" }, "Custom hex color", -1)),
-									createBaseVNode("div", _hoisted_15, [
+									createBaseVNode("div", _hoisted_14, [
 										createBaseVNode("button", {
 											id: "theme-picker",
 											type: "button",
@@ -7303,7 +7783,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 										}, [createBaseVNode("span", {
 											style: normalizeStyle({ backgroundColor: validCustomColor.value || selectedColor.value }),
 											"aria-hidden": "true"
-										}, null, 4)], 8, _hoisted_16),
+										}, null, 4)], 8, _hoisted_15),
 										withDirectives(createBaseVNode("input", {
 											id: "theme-hex",
 											"onUpdate:modelValue": _cache[2] || (_cache[2] = ($event) => customHex.value = $event),
@@ -7314,12 +7794,12 @@ var App_default = /* @__PURE__ */ defineComponent({
 											autocomplete: "off",
 											"aria-invalid": customColorError.value,
 											"aria-describedby": customColorError.value ? "theme-hex-help" : void 0
-										}, null, 8, _hoisted_17), [[vModelText, customHex.value]]),
+										}, null, 8, _hoisted_16), [[vModelText, customHex.value]]),
 										createBaseVNode("button", {
 											type: "submit",
 											class: "secondary",
 											disabled: busy.value || customColorError.value
-										}, "Apply", 8, _hoisted_18)
+										}, "Apply", 8, _hoisted_17)
 									]),
 									pickerOpen.value ? (openBlock(), createBlock(ColorPicker_default, {
 										key: 0,
@@ -7332,14 +7812,14 @@ var App_default = /* @__PURE__ */ defineComponent({
 										"aria-live": "polite"
 									}, toDisplayString(customColorError.value ? "Enter a 3- or 6-digit hex color, such as #166552." : ""), 513), [[vShow, customColorError.value]])
 								], 32)
-							], 8, _hoisted_7)]),
+							], 8, _hoisted_6)]),
 							_: 1
 						}),
 						createVNode(AnimatedDetails_default, {
 							id: "lock-settings",
 							label: "Lock settings"
 						}, {
-							default: withCtx(() => [createBaseVNode("div", _hoisted_19, [
+							default: withCtx(() => [createBaseVNode("div", _hoisted_18, [
 								_cache[20] || (_cache[20] = createBaseVNode("label", { for: "lock-after" }, "Automatically lock vault", -1)),
 								createBaseVNode("select", {
 									id: "lock-after",
@@ -7351,10 +7831,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 									return openBlock(), createElementBlock("option", {
 										key: option.value,
 										value: option.value
-									}, toDisplayString(option.label), 9, _hoisted_21);
-								}), 128))], 40, _hoisted_20),
-								createBaseVNode("p", _hoisted_22, [createTextVNode(toDisplayString(lockDescription.value) + " ", 1), !unencrypted.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [lockSetting.value !== "restart" ? (openBlock(), createElementBlock("span", _hoisted_23, "Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. ")) : createCommentVNode("", true), _cache[19] || (_cache[19] = createTextVNode("Changes apply immediately.", -1))], 64)) : createCommentVNode("", true)]),
-								!unencrypted.value ? (openBlock(), createElementBlock("p", _hoisted_24, "Default: On browser restart. You can always select Lock to lock immediately.")) : createCommentVNode("", true)
+									}, toDisplayString(option.label), 9, _hoisted_20);
+								}), 128))], 40, _hoisted_19),
+								createBaseVNode("p", _hoisted_21, [createTextVNode(toDisplayString(lockDescription.value) + " ", 1), !unencrypted.value ? (openBlock(), createElementBlock(Fragment, { key: 0 }, [lockSetting.value !== "restart" ? (openBlock(), createElementBlock("span", _hoisted_22, "Opening the popup or an extension page resets the timer while the vault is unlocked. The timer keeps running when the popup is closed. ")) : createCommentVNode("", true), _cache[19] || (_cache[19] = createTextVNode("Changes apply immediately.", -1))], 64)) : createCommentVNode("", true)]),
+								!unencrypted.value ? (openBlock(), createElementBlock("p", _hoisted_23, "Default: On browser restart. You can always select Lock to lock immediately.")) : createCommentVNode("", true)
 							])]),
 							_: 1
 						}),
@@ -7364,10 +7844,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 							open: skippedOpen.value,
 							onToggle: _cache[5] || (_cache[5] = ($event) => skippedOpen.value = $event.target.open),
 							class: "help warning"
-						}, [createBaseVNode("summary", _hoisted_26, toDisplayString(database.value.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_27, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value.skipped, (reason, index) => {
+						}, [createBaseVNode("summary", _hoisted_25, toDisplayString(database.value.skipped.length) + " unsupported or invalid entries skipped", 1), createBaseVNode("ul", _hoisted_26, [(openBlock(true), createElementBlock(Fragment, null, renderList(database.value.skipped, (reason, index) => {
 							return openBlock(), createElementBlock("li", { key: index }, toDisplayString(reason), 1);
-						}), 128))])], 40, _hoisted_25)) : createCommentVNode("", true)
-					], 8, _hoisted_6),
+						}), 128))])], 40, _hoisted_24)) : createCommentVNode("", true)
+					], 8, _hoisted_5),
 					createBaseVNode("section", {
 						id: "welcome",
 						hidden: configOpen.value || view.value !== "welcome"
@@ -7388,10 +7868,10 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "first-import",
 							onClick: chooseFile,
 							class: "primary"
-						}, [..._cache[22] || (_cache[22] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_29),
+						}, [..._cache[22] || (_cache[22] = [createTextVNode("Choose Aegis JSON ", -1), createBaseVNode("span", { "aria-hidden": "true" }, "↗", -1)])], 8, _hoisted_28),
 						_cache[27] || (_cache[27] = createBaseVNode("div", { class: "privacy" }, [createBaseVNode("span", { "aria-hidden": "true" }, "◉"), createTextVNode(" Entirely local. No account. No uploads.")], -1)),
 						_cache[28] || (_cache[28] = createBaseVNode("details", { class: "help" }, [createBaseVNode("summary", null, "How do I export from Aegis?"), createBaseVNode("p", null, "In the Android app, open Settings → Import & export → Export. Choose Aegis (.JSON), then transfer the file to this computer. Encrypted exports are supported.")], -1))
-					], 8, _hoisted_28),
+					], 8, _hoisted_27),
 					createBaseVNode("section", {
 						id: "unlock",
 						hidden: configOpen.value || view.value !== "unlock",
@@ -7417,23 +7897,23 @@ var App_default = /* @__PURE__ */ defineComponent({
 								type: "password",
 								autocomplete: "current-password",
 								required: ""
-							}, null, 8, _hoisted_31), [[vModelText, unlockPassword.value]]),
+							}, null, 8, _hoisted_30), [[vModelText, unlockPassword.value]]),
 							createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Unlock vault", 8, _hoisted_32)
+							}, "Unlock vault", 8, _hoisted_31)
 						], 32),
-						createBaseVNode("p", _hoisted_33, toDisplayString(lockDescription.value), 1)
-					], 8, _hoisted_30),
+						createBaseVNode("p", _hoisted_32, toDisplayString(lockDescription.value), 1)
+					], 8, _hoisted_29),
 					createBaseVNode("section", {
 						id: "import-password",
 						hidden: configOpen.value || view.value !== "import-password",
 						class: "form-section"
 					}, [
 						_cache[36] || (_cache[36] = createBaseVNode("p", { class: "eyebrow" }, "IMPORT VAULT", -1)),
-						createBaseVNode("h2", _hoisted_35, toDisplayString(encryptedImport.value ? "Unlock your export." : "Encrypt your local copy?"), 1),
-						createBaseVNode("p", _hoisted_36, toDisplayString(encryptedImport.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. You can protect the copy saved in Firefox with a password, or import it without one. Your original file is unchanged."), 1),
+						createBaseVNode("h2", _hoisted_34, toDisplayString(encryptedImport.value ? "Unlock your export." : "Encrypt your local copy?"), 1),
+						createBaseVNode("p", _hoisted_35, toDisplayString(encryptedImport.value ? "Enter the password you used to encrypt this Aegis export. Everything is decrypted on this device." : "This export is unencrypted. You can protect the copy saved in Firefox with a password, or import it without one. Your original file is unchanged."), 1),
 						createBaseVNode("form", {
 							id: "import-form",
 							onSubmit: withModifiers(importVault, ["prevent"])
@@ -7443,7 +7923,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 								class: "import-options",
 								disabled: busy.value,
 								"aria-label": "Local copy protection"
-							}, [createBaseVNode("label", _hoisted_38, [withDirectives(createBaseVNode("input", {
+							}, [createBaseVNode("label", _hoisted_37, [withDirectives(createBaseVNode("input", {
 								id: "import-without-password",
 								ref_key: "withoutPasswordInput",
 								ref: withoutPasswordInput,
@@ -7452,16 +7932,16 @@ var App_default = /* @__PURE__ */ defineComponent({
 								name: "import-protection",
 								value: false,
 								onChange: clearImportPassword
-							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[33] || (_cache[33] = createBaseVNode("span", null, "Import without password", -1))]), createBaseVNode("label", _hoisted_39, [withDirectives(createBaseVNode("input", {
+							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[33] || (_cache[33] = createBaseVNode("span", null, "Import without password", -1))]), createBaseVNode("label", _hoisted_38, [withDirectives(createBaseVNode("input", {
 								id: "encrypt-local",
 								"onUpdate:modelValue": _cache[8] || (_cache[8] = ($event) => protectLocal.value = $event),
 								type: "radio",
 								name: "import-protection",
 								value: true,
 								onChange: clearImportPassword
-							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[34] || (_cache[34] = createBaseVNode("span", null, "Encrypt local copy", -1))])], 8, _hoisted_37)) : createCommentVNode("", true),
+							}, null, 544), [[vModelRadio, protectLocal.value]]), _cache[34] || (_cache[34] = createBaseVNode("span", null, "Encrypt local copy", -1))])], 8, _hoisted_36)) : createCommentVNode("", true),
 							encryptedImport.value || protectLocal.value ? (openBlock(), createElementBlock(Fragment, { key: 1 }, [
-								createBaseVNode("label", _hoisted_40, toDisplayString(encryptedImport.value ? "Aegis export password" : "New local password"), 1),
+								createBaseVNode("label", _hoisted_39, toDisplayString(encryptedImport.value ? "Aegis export password" : "New local password"), 1),
 								withDirectives(createBaseVNode("input", {
 									disabled: busy.value,
 									id: "import-secret",
@@ -7471,23 +7951,23 @@ var App_default = /* @__PURE__ */ defineComponent({
 									autocomplete: encryptedImport.value ? "current-password" : "new-password",
 									type: "password",
 									required: ""
-								}, null, 8, _hoisted_41), [[vModelText, importSecret.value]]),
-								!encryptedImport.value ? (openBlock(), createElementBlock("div", _hoisted_42, [_cache[35] || (_cache[35] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
+								}, null, 8, _hoisted_40), [[vModelText, importSecret.value]]),
+								!encryptedImport.value ? (openBlock(), createElementBlock("div", _hoisted_41, [_cache[35] || (_cache[35] = createBaseVNode("label", { for: "confirm-secret" }, "Confirm password", -1)), withDirectives(createBaseVNode("input", {
 									disabled: busy.value,
 									id: "confirm-secret",
 									"onUpdate:modelValue": _cache[10] || (_cache[10] = ($event) => confirmSecret.value = $event),
 									type: "password",
 									autocomplete: "new-password",
 									required: ""
-								}, null, 8, _hoisted_43), [[vModelText, confirmSecret.value]])])) : createCommentVNode("", true)
+								}, null, 8, _hoisted_42), [[vModelText, confirmSecret.value]])])) : createCommentVNode("", true)
 							], 64)) : createCommentVNode("", true),
 							createBaseVNode("button", {
 								disabled: busy.value,
 								class: "primary",
 								type: "submit"
-							}, "Continue", 8, _hoisted_44)
+							}, "Continue", 8, _hoisted_43)
 						], 32)
-					], 8, _hoisted_34),
+					], 8, _hoisted_33),
 					createBaseVNode("section", {
 						id: "vault",
 						hidden: configOpen.value || view.value !== "vault"
@@ -7506,8 +7986,8 @@ var App_default = /* @__PURE__ */ defineComponent({
 							placeholder: "Search service or account…",
 							autocomplete: "off",
 							spellcheck: "false"
-						}, null, 8, _hoisted_46), [[vModelText, search.value]]),
-						createBaseVNode("div", _hoisted_47, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
+						}, null, 8, _hoisted_45), [[vModelText, search.value]]),
+						createBaseVNode("div", _hoisted_46, [(openBlock(true), createElementBlock(Fragment, null, renderList(groups.value, (group) => {
 							return openBlock(), createElementBlock("button", {
 								key: group.value,
 								class: "group-badge",
@@ -7516,9 +7996,9 @@ var App_default = /* @__PURE__ */ defineComponent({
 								"aria-pressed": selectedGroup.value === group.value,
 								disabled: busy.value,
 								onClick: ($event) => selectedGroup.value = group.value
-							}, toDisplayString(group.label), 9, _hoisted_48);
+							}, toDisplayString(group.label), 9, _hoisted_47);
 						}), 128))]),
-						createBaseVNode("div", _hoisted_49, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_50, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_51, toDisplayString(entries.value.length), 1)]), _cache[37] || (_cache[37] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
+						createBaseVNode("div", _hoisted_48, [createBaseVNode("span", null, [createBaseVNode("span", _hoisted_49, toDisplayString(listLabel.value), 1), createBaseVNode("span", _hoisted_50, toDisplayString(entries.value.length), 1)]), _cache[37] || (_cache[37] = createBaseVNode("span", null, "CLICK A CODE TO COPY", -1))]),
 						database.value && !configOpen.value ? (openBlock(), createBlock(TransitionGroup, {
 							key: epoch.value,
 							id: "entries",
@@ -7532,17 +8012,21 @@ var App_default = /* @__PURE__ */ defineComponent({
 								return openBlock(), createElementBlock("div", {
 									key: entry.id,
 									class: "entry-slot"
-								}, [createBaseVNode("div", _hoisted_52, [createVNode(AccountCard_default, {
+								}, [createBaseVNode("div", _hoisted_51, [createVNode(AccountCard_default, {
 									entry,
 									now: now.value,
 									"group-names": groupNames.value,
 									busy: busy.value,
+									pinned: pinnedAccounts.value.has(entry.pinId),
+									onTogglePin: ($event) => togglePin(entry.pinId),
 									onNotify: notify
 								}, null, 8, [
 									"entry",
 									"now",
 									"group-names",
-									"busy"
+									"busy",
+									"pinned",
+									"onTogglePin"
 								])])]);
 							}), 128))]),
 							_: 1
@@ -7551,9 +8035,9 @@ var App_default = /* @__PURE__ */ defineComponent({
 							id: "no-results",
 							hidden: entries.value.length > 0,
 							class: "empty"
-						}, "No accounts match your search.", 8, _hoisted_53),
+						}, "No accounts match your search.", 8, _hoisted_52),
 						_cache[39] || (_cache[39] = createBaseVNode("p", { class: "clock-note" }, "Codes use your computer’s clock. Keep it in sync.", -1))
-					], 8, _hoisted_45)
+					], 8, _hoisted_44)
 				], 512),
 				createBaseVNode("footer", null, [_cache[40] || (_cache[40] = createBaseVNode("span", { class: "local-indicator" }, "LOCAL ONLY", -1)), createBaseVNode("div", null, [createBaseVNode("button", {
 					disabled: busy.value,
@@ -7561,13 +8045,13 @@ var App_default = /* @__PURE__ */ defineComponent({
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
 					onClick: chooseFile,
 					class: "text-button"
-				}, "Load another file", 8, _hoisted_54), createBaseVNode("button", {
+				}, "Load another file", 8, _hoisted_53), createBaseVNode("button", {
 					disabled: busy.value,
 					id: "forget",
 					hidden: configOpen.value || !saved.value || view.value === "import-password",
 					onClick: _cache[12] || (_cache[12] = ($event) => removeDialog.value?.showModal()),
 					class: "text-button danger"
-				}, "Remove vault", 8, _hoisted_55)])]),
+				}, "Remove vault", 8, _hoisted_54)])]),
 				createBaseVNode("input", {
 					disabled: busy.value,
 					id: "file",
@@ -7577,7 +8061,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 					onChange: chooseImport,
 					type: "file",
 					accept: ".json,application/json"
-				}, null, 40, _hoisted_56),
+				}, null, 40, _hoisted_55),
 				createBaseVNode("dialog", {
 					id: "remove-dialog",
 					ref_key: "removeDialog",
@@ -7585,19 +8069,19 @@ var App_default = /* @__PURE__ */ defineComponent({
 				}, [
 					_cache[41] || (_cache[41] = createBaseVNode("h2", null, "Remove this vault?", -1)),
 					_cache[42] || (_cache[42] = createBaseVNode("p", null, "This deletes the extension’s saved copy. Your original Aegis file stays on your device.", -1)),
-					createBaseVNode("div", _hoisted_57, [createBaseVNode("button", {
+					createBaseVNode("div", _hoisted_56, [createBaseVNode("button", {
 						disabled: busy.value,
 						id: "cancel-remove",
 						onClick: _cache[13] || (_cache[13] = ($event) => removeDialog.value?.close()),
 						class: "secondary"
-					}, "Cancel", 8, _hoisted_58), createBaseVNode("button", {
+					}, "Cancel", 8, _hoisted_57), createBaseVNode("button", {
 						disabled: busy.value,
 						id: "confirm-remove",
 						onClick: removeVault,
 						class: "primary destructive"
-					}, "Remove vault", 8, _hoisted_59)])
+					}, "Remove vault", 8, _hoisted_58)])
 				], 512)
-			]);
+			])], 64);
 		};
 	}
 });

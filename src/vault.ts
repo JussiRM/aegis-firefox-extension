@@ -1,6 +1,7 @@
 import type { AegisVault, RawDatabase, StoredVault, EncryptionParams, Database, Entry } from './types.ts';
 import { scryptAsync } from '@noble/hashes/scrypt.js';
 import { prepareTotp } from './totp.ts';
+import { accountPinId } from './pins.ts';
 
 export const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const encoder = new TextEncoder();
@@ -106,7 +107,7 @@ export async function normalizeDatabase(db: RawDatabase): Promise<Database> {
         const id = `legacy:${entry.group}`;
         groupMap.set(id, { id, name: entry.group }); memberships.add(id);
       }
-      entries.push({ id: `entry-${index}`, issuer: String(entry.issuer || ''), name: String(entry.name || ''), favorite: entry.favorite === true, groups: [...memberships], token });
+      entries.push({ id: `entry-${index}`, pinId: await accountPinId(entry), issuer: String(entry.issuer || ''), name: String(entry.name || ''), favorite: entry.favorite === true, groups: [...memberships], token });
     } catch (error) { skipped.push(`${label}: ${error instanceof Error ? error.message : 'Invalid entry.'}`); }
   }
   if (!entries.length) throw new Error(`No supported TOTP entries were found.${skipped.length ? ` ${skipped.length} entries were skipped.` : ''}`);

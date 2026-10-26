@@ -38,7 +38,7 @@ export function createSessionStore(storage: SessionStorage, readSetting: () => P
         version: database.version,
         groups: database.groups ?? [],
         entries: database.entries.map((entry) => ({
-          type: entry?.type, name: entry?.name, issuer: entry?.issuer,
+          uuid: entry?.uuid, type: entry?.type, name: entry?.name, issuer: entry?.issuer,
           favorite: entry?.favorite, groups: entry?.groups, group: entry?.group,
           ...(entry?.type === 'totp' ? { info: {
             secret: entry.info?.secret, algo: entry.info?.algo,

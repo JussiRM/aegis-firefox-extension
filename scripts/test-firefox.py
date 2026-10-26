@@ -263,7 +263,7 @@ def main():
             picked_color = popup_js("return document.getElementById('theme-hex').value")
             assert picked_color != initial_color, "Pointer clicks must change the picked color"
             popup_click("#custom-theme-form button[type=submit]")
-            popup_wait("!document.getElementById('config').disabled && document.getElementById('theme-picker').getAttribute('aria-expanded') === 'false' && document.getElementById('status').hidden")
+            popup_wait("!document.getElementById('config').disabled && document.getElementById('theme-picker').getAttribute('aria-expanded') === 'false' && getComputedStyle(document.getElementById('status')).display === 'none'")
             assert client.js("return document.getElementById('customizationui-widget-panel').state") == "open"
             client.js("document.getElementById('customizationui-widget-panel').hidePopup()")
             client.command("Marionette:SetContext", {"value": "content"})
@@ -451,7 +451,9 @@ def main():
             assert client.js("return document.querySelector('.entry progress').value") == 30
             client.click(".code")
             client.wait("document.querySelector('.entry .copy-shine')")
-            assert not client.js("return document.getElementById('status').textContent.includes('Code copied')")
+            client.wait("document.getElementById('status').textContent === 'Code copied.' && getComputedStyle(document.getElementById('status')).opacity === '1'")
+            assert not client.js("return document.getElementById('status').classList.contains('error')")
+            client.wait("getComputedStyle(document.getElementById('status')).display === 'none'")
             client.click('#group [data-group="group:work"]')
             client.wait("document.querySelectorAll('.entry').length === 2")
             assert client.js("return document.querySelectorAll('#group [aria-pressed=true]').length") == 1
@@ -467,6 +469,68 @@ def main():
             client.fill("#search", "")
             client.wait("document.querySelectorAll('.entry').length === 4")
             client.wait("document.querySelector('.code').textContent === '359 152'")
+            # Pins stay first within searches/groups and survive reordered
+            # reimports even when this export has no account UUIDs.
+            client.wait("!document.querySelector('.account-enter-active, .account-leave-active') && document.getAnimations().filter(animation => !animation.effect?.target?.classList.contains('timer-fill')).every(animation => animation.playState !== 'running')")
+            notification_layout = client.js("return ['main', '#search', '#entries', 'footer'].map(selector => { const rect = document.querySelector(selector).getBoundingClientRect(); return [rect.y, rect.height]; })")
+            client.js("""
+              const status = document.getElementById('status');
+              status.addEventListener('transitionrun', event => {
+                if (event.propertyName !== 'opacity') return;
+                if (status.classList.contains('notification-enter-active')) document.documentElement.dataset.notificationEntered = 'true';
+                if (status.classList.contains('notification-leave-active')) document.documentElement.dataset.notificationLeft = 'true';
+              });
+            """)
+            client.pointer_click('.entry-slot:nth-child(2) .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'Google' && !document.querySelector('.pin-button').disabled")
+            client.wait("document.getElementById('status').textContent === 'Account pinned to top.' && getComputedStyle(document.getElementById('status')).opacity === '1'")
+            assert client.js("return getComputedStyle(document.querySelector('.notification-host')).position") == 'fixed'
+            assert client.js("""
+              const toast = document.getElementById('status').getBoundingClientRect();
+              const brand = document.querySelector('.brand').getBoundingClientRect();
+              const buttons = document.querySelector('.header-actions').getBoundingClientRect();
+              return toast.left === brand.left && toast.top === brand.top && toast.right <= brand.right && toast.right < buttons.left && toast.bottom <= brand.bottom;
+            """), 'Notifications must cover only the logo area'
+            screenshot = client.command('WebDriver:TakeScreenshot', {'full': True})['value']
+            (ROOT / 'artifacts/notification-preview.png').write_bytes(base64.b64decode(screenshot))
+            assert client.js("return ['main', '#search', '#entries', 'footer'].map(selector => { const rect = document.querySelector(selector).getBoundingClientRect(); return [rect.y, rect.height]; })") == notification_layout, 'Notifications must not shift the layout'
+            client.wait("getComputedStyle(document.getElementById('status')).display === 'none'")
+            assert client.js("return document.documentElement.dataset.notificationEntered === 'true' && document.documentElement.dataset.notificationLeft === 'true'"), 'Notifications must fade in and out'
+            assert client.js("return ['main', '#search', '#entries', 'footer'].map(selector => { const rect = document.querySelector(selector).getBoundingClientRect(); return [rect.y, rect.height]; })") == notification_layout
+            client.click('.entry-slot:nth-child(3) .pin-button')
+            client.wait("document.querySelectorAll('.pin-button[aria-pressed=true]').length === 2 && !document.querySelector('.pin-button').disabled")
+            assert client.js("return Array.from(document.querySelectorAll('.service'), el => el.textContent)") == ['Google', 'Cloudflare', '★ GitHub', 'Dropbox']
+            client.fill('#search', 'alex')
+            client.wait("document.querySelectorAll('.entry').length === 3")
+            assert client.js("return document.querySelector('.service').textContent") == 'Google'
+            client.fill('#search', '')
+            client.click('#group [data-group="group:work"]')
+            client.wait("document.querySelectorAll('.entry').length === 2")
+            assert client.js("return document.querySelector('.service').textContent") == 'Cloudflare'
+            client.click('#group [data-group="all"]')
+            client.wait("document.querySelectorAll('.entry').length === 4")
+            client.click('.entry-slot:first-child .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'Cloudflare' && !document.querySelector('.pin-button').disabled")
+            client.command('WebDriver:Refresh')
+            client.wait("document.querySelector('.service').textContent === 'Cloudflare' && !document.querySelector('.pin-button').disabled")
+            reordered = json.loads((ROOT / 'tests/fixtures/demo.json').read_text())
+            reordered['db']['entries'].reverse()
+            reordered_path = directory / 'reordered.json'
+            reordered_path.write_text(json.dumps(reordered))
+            client.upload(reordered_path, encrypted=False)
+            client.click('#import-form button[type=submit]')
+            client.wait("document.querySelectorAll('.entry').length === 4 && !document.querySelector('.pin-button').disabled")
+            assert client.js("return Array.from(document.querySelectorAll('.service'), el => el.textContent)") == ['Cloudflare', 'Dropbox', 'Google', '★ GitHub']
+            client.click('.entry-slot:first-child .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'Dropbox' && !document.querySelector('.pin-button').disabled")
+            assert client.js("return Array.from(document.querySelectorAll('.service'), el => el.textContent)") == ['Dropbox', 'Cloudflare', 'Google', '★ GitHub']
+            client.upload(ROOT / 'tests/fixtures/demo.json', encrypted=False)
+            client.click('#import-form button[type=submit]')
+            client.wait("document.querySelectorAll('.entry').length === 4 && !document.querySelector('.pin-button').disabled")
+            # Leave GitHub pinned to check browser restart and local encryption.
+            client.click('.entry-slot:first-child .pin-button')
+            client.wait("document.querySelector('.pin-button').getAttribute('aria-pressed') === 'true' && !document.querySelector('.pin-button').disabled")
+            assert client.session_snapshot() == {}
             # Show the default theme and let the account transition settle
             # before capturing the README preview.
             client.click("#config")
@@ -491,6 +555,7 @@ def main():
             client.wait("document.querySelectorAll('.entry').length === 4 && document.activeElement?.id === 'search'")
             assert client.js("return document.getElementById('lock').hidden")
             assert client.session_snapshot() == {}
+            assert client.js("return document.querySelector('.pin-button').getAttribute('aria-pressed')") == 'true'
             # The same plain file can instead be protected with a local password.
             client.upload(ROOT / "tests/fixtures/demo.json", encrypted=False)
             client.click("#encrypt-local")
@@ -514,6 +579,7 @@ def main():
             client.fill("#unlock-password", "x")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 4 && !document.getElementById('lock').disabled")
+            assert client.js("return document.querySelector('.pin-button').getAttribute('aria-pressed')") == 'true'
             # Replacing it with an encrypted export restores password locking.
             client.upload(ROOT / "tests/fixtures/upstream-encrypted.json")
             client.fill("#import-secret", "test")
@@ -529,12 +595,32 @@ def main():
             client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            # UUID pins survive encrypted reimports and unlocks, too.
+            client.click('.entry-slot:nth-child(2) .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'SPDX' && !document.querySelector('.pin-button').disabled")
             # Closing/reloading a view keeps the browser-session unlock.
             client.command("WebDriver:Refresh")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
             # Opening the popup document restores the vault and focuses search.
             client.navigate(url.split("?")[0])
             client.wait("document.activeElement?.id === 'search' && !document.getElementById('search').disabled")
+            # The popup header has all three actions; the toast must stop
+            # before them and leave each button visible and clickable.
+            client.click('.entry-slot:nth-child(2) .pin-button')
+            client.wait("getComputedStyle(document.getElementById('status')).opacity === '1' && !document.querySelector('.pin-button').disabled")
+            assert client.js("""
+              const toast = document.getElementById('status').getBoundingClientRect();
+              const brand = document.querySelector('.brand').getBoundingClientRect();
+              return toast.left === brand.left && toast.right <= brand.right &&
+                Array.from(document.querySelectorAll('.header-actions button')).every(button => {
+                  const rect = button.getBoundingClientRect();
+                  return rect.width > 0 && toast.right < rect.left && document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.closest('button') === button;
+                });
+            """), 'Popup header buttons must remain visible and clickable'
+            screenshot = client.command('WebDriver:TakeScreenshot', {'full': True})['value']
+            (ROOT / 'artifacts/notification-popup-preview.png').write_bytes(base64.b64decode(screenshot))
+            client.click('.entry-slot:first-child .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'SPDX' && !document.querySelector('.pin-button').disabled")
             client.navigate(url)
             client.wait("document.querySelectorAll('.entry').length === 3 && document.activeElement?.id === 'search'")
             # Import the real upstream encrypted export, including a failed attempt.
@@ -549,6 +635,8 @@ def main():
             client.fill("#import-secret", "test")
             client.click("#import-form button[type=submit]")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            assert client.js("return document.querySelector('.service').textContent") == 'SPDX'
+            assert client.js("return document.querySelector('.pin-button').getAttribute('aria-pressed')") == 'true'
             # Inactivity no longer locks the vault during the browser session.
             client.clock(9000000000000)
             client.wait("/^[0-9 ]+$/.test(document.querySelector('.code').textContent)")
@@ -565,6 +653,18 @@ def main():
             client.command("WebDriver:SwitchToWindow", {"handle": second})
             client.navigate(url)
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            assert client.js("return document.querySelector('.service').textContent") == 'SPDX'
+            assert client.js("return document.querySelector('.pin-button').getAttribute('aria-pressed')") == 'true'
+            pin_session = client.session_snapshot()
+            client.click('.entry-slot:first-child .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'Deno' && !document.querySelector('.pin-button').disabled")
+            client.command('WebDriver:SwitchToWindow', {'handle': first})
+            client.wait("document.querySelector('.service').textContent === 'Deno' && document.querySelectorAll('.pin-button[aria-pressed=true]').length === 0")
+            client.click('.entry-slot:nth-child(2) .pin-button')
+            client.wait("document.querySelector('.service').textContent === 'SPDX' && !document.querySelector('.pin-button').disabled")
+            client.command('WebDriver:SwitchToWindow', {'handle': second})
+            client.wait("document.querySelector('.service').textContent === 'SPDX' && document.querySelector('.pin-button').getAttribute('aria-pressed') === 'true'")
+            assert client.session_snapshot() == pin_session, 'Pinning must not reset the lock timer'
             # Changing appearance syncs to other views without disturbing the
             # unlocked session or its deadline.
             theme_session = client.session_snapshot()
@@ -683,6 +783,8 @@ def main():
             client.fill("#unlock-password", "test")
             client.click("#unlock-form button")
             client.wait("document.querySelectorAll('.entry').length === 3 && !document.getElementById('lock').disabled")
+            assert client.js("return document.querySelector('.service').textContent") == 'SPDX'
+            assert client.js("return document.querySelector('.pin-button').getAttribute('aria-pressed')") == 'true'
             # Replacing a timed encrypted vault with plain JSON clears its
             # session and alarm, and updates an already-open view as well.
             first = client.command("WebDriver:GetWindowHandle")["value"]
@@ -707,7 +809,7 @@ def main():
             client.wait("!document.getElementById('welcome').hidden && !document.getElementById('first-import').disabled")
             client.command("WebDriver:Refresh")
             client.wait("!document.getElementById('welcome').hidden")
-            print("PASS: Plain JSON offers optional local encryption with password validation and locking, or password-free import and reopening after restart; invalid replacement preserves the vault; plain replacement clears the encrypted session and alarm across tabs; Firefox codes, copy, filters and themes work; encrypted vaults retain session, timed/manual locking and restart password checks; vault removal persists.")
+            print("PASS: Fixed notifications fade in/out without shifting layout; pins persist through reordered JSON imports, encryption, unlocking and Firefox restarts, sync across tabs without resetting sessions, and respect filters; plain JSON offers optional local encryption with password validation and locking, or password-free import and reopening after restart; invalid replacement preserves the vault; plain replacement clears the encrypted session and alarm across tabs; Firefox codes, copy, filters and themes work; encrypted vaults retain session, timed/manual locking and restart password checks; vault removal persists.")
             client.command("WebDriver:DeleteSession")
         finally:
             process.terminate()
