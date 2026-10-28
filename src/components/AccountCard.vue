@@ -2,8 +2,8 @@
 import { computed, onUnmounted, ref, watch } from 'vue';
 import { generateTotp } from '../totp';
 import type { Entry } from '../types';
-const props = defineProps<{ entry: Entry; now: number; groupNames: Map<string, string>; busy: boolean }>();
-const emit = defineEmits<{ notify: [message: string, error?: boolean, temporary?: boolean] }>();
+const props = defineProps<{ entry: Entry; now: number; groupNames: Map<string, string>; busy: boolean; pinned: boolean }>();
+const emit = defineEmits<{ togglePin: []; notify: [message: string, error?: boolean, temporary?: boolean] }>();
 const title = computed(() => props.entry.issuer || props.entry.name || 'Unnamed account');
 const code = ref('··· ···'), remaining = ref(props.entry.token.period), unavailable = ref(false);
 const timer = ref({ key: '', duration: '', delay: '' });
@@ -43,6 +43,7 @@ async function copy() {
     await navigator.clipboard.writeText(result.code);
     if (!disposed) {
       copyShine.value += 1;
+      emit('notify', 'Code copied.', false, true);
     }
   } catch { if (!disposed) emit('notify', 'Could not copy the code. You can select and copy it manually.', true); }
 }
@@ -50,7 +51,7 @@ watch(() => props.now, () => void update(), { immediate: true });
 onUnmounted(() => { disposed = true; });
 </script>
 <template>
-  <article class="entry" :class="{ expiring: remaining <= 5 }">
+  <article class="entry" :class="{ expiring: remaining <= 5, pinned }">
     <span v-if="copyShine" :key="copyShine" class="copy-shine" aria-hidden="true"></span>
     <div class="avatar">{{ title.slice(0, 1).toUpperCase() }}</div>
     <div class="entry-main">
@@ -65,5 +66,8 @@ onUnmounted(() => { disposed = true; });
         <span :key="timer.key" class="timer-fill" :style="{ animationDuration: timer.duration, animationDelay: timer.delay }" aria-hidden="true"></span>
       </div>
     </div>
+    <button class="icon-button pin-button" type="button" :disabled="busy" :aria-pressed="pinned" :title="pinned ? 'Unpin' : 'Pin to top'" :aria-label="`${pinned ? 'Unpin' : 'Pin to top:'} ${title}${entry.issuer && entry.name ? `, ${entry.name}` : ''}`" @click="emit('togglePin')">
+      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path class="pin-head" d="M8 3h8l-1 6 3 4v2H6v-2l3-4z"/><path d="M12 15v6"/></svg>
+    </button>
   </article>
 </template>

@@ -74,12 +74,20 @@ footer {
   justify-content: space-between;
 }
 
+header {
+  gap: 8px;
+}
+
 .brand {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
   justify-content: start;
   gap: 8px;
 }
 
 .header-actions {
+  flex-shrink: 0;
   gap: 4px;
 }
 
@@ -317,18 +325,47 @@ form > .primary {
   margin-top: 20px;
 }
 
+.notification-host {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+}
+
 .status {
+  min-height: inherit;
+  display: flex;
+  align-items: center;
   font-size: 12px;
-  padding: 11px 13px;
-  background: var(--pale);
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--pale) 55%, transparent);
+  backdrop-filter: blur(10px);
   border-radius: 8px;
-  margin: 18px 0 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 16px var(--shadow);
   overflow-wrap: anywhere;
+}
+
+.notification-enter-active,
+.notification-leave-active {
+  transition: opacity 220ms ease;
+}
+
+.notification-enter-from,
+.notification-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-enter-active,
+  .notification-leave-active {
+    transition: none;
+  }
 }
 
 .status.error {
   color: var(--error);
-  background: var(--error-bg);
+  background: color-mix(in srgb, var(--error-bg) 55%, transparent);
 }
 
 #vault {
@@ -430,11 +467,31 @@ form > .primary {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 12px 12px 10px;
   display: grid;
   grid-template-columns: 33px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 10px;
+}
+
+.pin-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+
+  svg { width: 13px; height: 13px; }
+
+  &[aria-pressed=true] {
+    color: var(--accent);
+
+    svg { transform: rotate(45deg); }
+    .pin-head { fill: currentColor; }
+  }
 }
 
 .avatar {
@@ -470,6 +527,7 @@ form > .primary {
 }
 
 .code-row {
+  padding-top: 10px;
   display: grid;
   grid-template-columns: max-content;
   justify-self: end;

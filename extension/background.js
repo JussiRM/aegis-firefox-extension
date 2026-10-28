@@ -58,6 +58,7 @@
 						version: database.version,
 						groups: database.groups ?? [],
 						entries: database.entries.map((entry) => ({
+							uuid: entry?.uuid,
 							type: entry?.type,
 							name: entry?.name,
 							issuer: entry?.issuer,

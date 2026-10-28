@@ -5,7 +5,9 @@ import { SESSION_KEY } from './session';
 import { createSessionClient } from './session-client';
 import { LOCK_OPTIONS, LOCK_SETTING_KEY, lockAfter, lockDeadline, type LockAfter } from './settings';
 import { THEME_GROUPS, DEFAULT_THEME, THEME_SETTING_KEY, THEME_MODE_SETTING_KEY, themeColor, themeMode, normalizeHex, applyTheme, type ThemeMode } from './theme';
+import { PIN_KEY_PREFIX } from './pins';
 import AccountCard from './components/AccountCard.vue';
+import NotificationToast from './components/NotificationToast.vue';
 import ColorPicker from './components/ColorPicker.vue';
 import AnimatedDetails from './components/AnimatedDetails.vue';
 import type { AegisVault, Database, StoredVault } from './types';
@@ -54,8 +56,27 @@ function togglePicker() {
 const saved = shallowRef<StoredVault | null>(null);
 const pending = shallowRef<AegisVault | null>(null);
 const database = shallowRef<Database | null>(null);
-const busy = ref(false), status = ref(''), statusError = ref(false);
+const busy = ref(false);
+const notification = ref<InstanceType<typeof NotificationToast>>();
+const notificationAnchor = ref<HTMLElement>();
 const selectedGroup = ref('all'), search = ref('');
+const pinnedAccounts = ref(new Set<string>());
+async function readPins() {
+  const settings = await browser.storage.local.get(null);
+  pinnedAccounts.value = new Set(Object.keys(settings).filter(key => key.startsWith(PIN_KEY_PREFIX) && settings[key] === true).map(key => key.slice(PIN_KEY_PREFIX.length)));
+}
+function togglePin(pinId: string) {
+  void task('', async () => {
+    const key = PIN_KEY_PREFIX + pinId;
+    const pinned = !pinnedAccounts.value.has(pinId);
+    if (pinned) await browser.storage.local.set({ [key]: true });
+    else await browser.storage.local.remove(key);
+    const next = new Set(pinnedAccounts.value);
+    if (pinned) next.add(pinId); else next.delete(pinId);
+    pinnedAccounts.value = next;
+    notify(pinned ? 'Account pinned to top.' : 'Account unpinned.', false, true);
+  });
+}
 watch(search, query => {
   if (query.length > 0) selectedGroup.value = 'all';
 });
@@ -105,7 +126,6 @@ function tick() {
   if (database.value && activeDeadline !== null && now.value >= activeDeadline && !busy.value) manualLock();
 }
 function visible() { if (!document.hidden) tick(); }
-let statusTimer: ReturnType<typeof setTimeout> | undefined;
 async function readLockSetting() {
   const settings = await browser.storage.local.get(LOCK_SETTING_KEY);
   lockSetting.value = lockAfter(settings[LOCK_SETTING_KEY]);
@@ -141,13 +161,11 @@ const entries = computed(() => {
   return database.value?.entries.filter(entry => {
     const inGroup = selected === 'all' || selected.startsWith('group:') && entry.groups.includes(selected.slice(6));
     return inGroup && `${entry.issuer} ${entry.name}`.toLocaleLowerCase().includes(query);
-  }) ?? [];
+  }).sort((a, b) => Number(pinnedAccounts.value.has(b.pinId)) - Number(pinnedAccounts.value.has(a.pinId))) ?? [];
 });
 const listLabel = computed(() => selectedGroup.value.startsWith('group:') ? groupNames.value.get(selectedGroup.value.slice(6))?.toUpperCase() : 'ALL ACCOUNTS');
 function notify(message: string, error = false, temporary = false) {
-  clearTimeout(statusTimer);
-  status.value = message; statusError.value = error;
-  if (temporary) statusTimer = setTimeout(() => notify(''), 3500);
+  notification.value?.show(message, { error, duration: temporary ? 3500 : 0 });
 }
 function enableEnteringAccount(element: Element) {
   if (element instanceof HTMLElement) element.inert = false;
@@ -272,6 +290,15 @@ async function refreshVault(resetTimeout = false) {
   if (raw) activate(await normalizeDatabase(raw), deadline); else lock();
 }
 const storageChanged: Parameters<typeof browser.storage.onChanged.addListener>[0] = (changes, area) => {
+  if (area === 'local') {
+    const next = new Set(pinnedAccounts.value);
+    for (const [key, change] of Object.entries(changes)) {
+      if (!key.startsWith(PIN_KEY_PREFIX)) continue;
+      const id = key.slice(PIN_KEY_PREFIX.length);
+      if (change.newValue === true) next.add(id); else next.delete(id);
+    }
+    pinnedAccounts.value = next;
+  }
   if (area === 'local' && changes[THEME_MODE_SETTING_KEY]) {
     selectedMode.value = themeMode(changes[THEME_MODE_SETTING_KEY].newValue);
     applyTheme(selectedColor.value, selectedMode.value);
@@ -296,7 +323,7 @@ onMounted(() => {
   document.addEventListener('visibilitychange', visible);
   window.addEventListener('pagehide', resetSecrets);
   browser.storage.onChanged.addListener(storageChanged);
-  void task('Opening local vault…', async () => { await readTheme(); await refreshVault(true); });
+  void task('Opening local vault…', async () => { await readTheme(); await readPins(); await refreshVault(true); });
 });
 onUnmounted(() => {
   transitionRevision++; cancelAnimations();
@@ -305,13 +332,14 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', visible);
   window.removeEventListener('pagehide', resetSecrets);
   browser.storage.onChanged.removeListener(storageChanged);
-  clearTimeout(statusTimer); resetSecrets();
+  resetSecrets();
 });
 </script>
 <template>
+  <NotificationToast ref="notification" :anchor="notificationAnchor" />
   <main>
     <header>
-      <div class="brand"><svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="var(--accent)"/><path d="M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z" fill="none" stroke="var(--on-accent)" stroke-width="3.5"/><path d="M24 40 32 23 40 40M27 34h10" fill="none" stroke="var(--on-accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Aegis Viewer</h1></div>
+      <div ref="notificationAnchor" class="brand"><svg class="brand-icon" aria-hidden="true" width="32" height="32" viewBox="0 0 64 64"><rect width="64" height="64" rx="18" fill="var(--accent)"/><path d="M32 12 49 19v13c0 10-8 17-17 21-9-4-17-11-17-21V19z" fill="none" stroke="var(--on-accent)" stroke-width="3.5"/><path d="M24 40 32 23 40 40M27 34h10" fill="none" stroke="var(--on-accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg><h1>Aegis Viewer</h1></div>
       <!-- Bootstrap Icons v1.13.1 (MIT); see licenses/bootstrap-icons-LICENSE.txt. -->
       <div class="header-actions">
         <button :disabled="busy || view === 'import-password'" id="config" @click="toggleConfig" class="icon-button" :aria-pressed="configOpen" :title="configOpen ? 'Back' : 'Settings'" :aria-label="configOpen ? 'Back' : 'Settings'">
@@ -326,7 +354,6 @@ onUnmounted(() => {
       </div>
     </header>
     <div ref="viewStage" class="view-stage">
-    <div id="status" :hidden="!status" :class="{ error: statusError }" class="status" role="status" aria-live="polite">{{ status }}</div>
 
     <section id="settings" :hidden="!configOpen" class="form-section">
       <h2>Settings</h2>
@@ -416,7 +443,7 @@ onUnmounted(() => {
       <!-- Destroy the entire list on lock/replacement, bypassing leave animations. -->
       <TransitionGroup v-if="database && !configOpen" :key="epoch" id="entries" class="entries" tag="div" name="account" @before-enter="enableEnteringAccount" @before-leave="disableLeavingAccount">
         <div v-for="entry in entries" :key="entry.id" class="entry-slot">
-          <div class="entry-clip"><AccountCard :entry="entry" :now="now" :group-names="groupNames" :busy="busy" @notify="notify" /></div>
+          <div class="entry-clip"><AccountCard :entry="entry" :now="now" :group-names="groupNames" :busy="busy" :pinned="pinnedAccounts.has(entry.pinId)" @toggle-pin="togglePin(entry.pinId)" @notify="notify" /></div>
         </div>
       </TransitionGroup>
       <p id="no-results" :hidden="entries.length > 0" class="empty">No accounts match your search.</p>
