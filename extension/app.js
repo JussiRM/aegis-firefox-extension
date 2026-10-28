@@ -6185,58 +6185,30 @@ function lockDeadline(setting, unlockedAt) {
 }
 // src/session.ts
 var SESSION_KEY = "unlockedVault";
-function createSessionStore(storage, readSetting = async () => "restart", now = () => Date.now()) {
+// src/session-client.ts
+function createSessionClient(send) {
+	async function request(message) {
+		const reply = await send(message);
+		if (!reply?.ok) throw new Error(reply?.error || "Could not contact the vault session. Please reopen the extension.");
+		return reply.value;
+	}
 	return {
-		async read(saved, { resetTimeout = false } = {}) {
-			if (!saved?.revision) return null;
-			const unlocked = (await storage.get(SESSION_KEY))[SESSION_KEY];
-			const deadline = lockDeadline(await readSetting(), unlocked?.unlockedAt);
-			if (unlocked && deadline !== null && now() >= deadline) {
-				await storage.remove(SESSION_KEY);
-				return null;
-			}
-			if (unlocked?.revision !== saved.revision) return null;
-			if (resetTimeout) await storage.set({ [SESSION_KEY]: {
-				...unlocked,
-				unlockedAt: now()
-			} });
-			return unlocked.database;
-		},
-		async remember(saved, database) {
-			if (!saved?.revision) throw new Error("The saved vault has no revision. Import it again.");
-			const compact = JSON.parse(JSON.stringify({
-				version: database.version,
-				groups: database.groups ?? [],
-				entries: database.entries.map((entry) => ({
-					type: entry?.type,
-					name: entry?.name,
-					issuer: entry?.issuer,
-					favorite: entry?.favorite,
-					groups: entry?.groups,
-					group: entry?.group,
-					...entry?.type === "totp" ? { info: {
-						secret: entry.info?.secret,
-						algo: entry.info?.algo,
-						digits: entry.info?.digits,
-						period: entry.info?.period
-					} } : {}
-				}))
-			}));
-			const unlockedAt = now();
-			try {
-				await storage.set({ [SESSION_KEY]: {
-					revision: saved.revision,
-					database: compact,
-					unlockedAt
-				} });
-			} catch {
-				throw new Error("Firefox could not keep this vault unlocked in session memory. Try importing a smaller export.");
-			}
-			return unlockedAt;
-		},
-		async clear() {
-			await storage.remove(SESSION_KEY);
-		}
+		read: (saved, { resetTimeout = false } = {}) => request({
+			channel: "vault-session",
+			action: "read",
+			revision: saved?.revision,
+			resetTimeout
+		}),
+		remember: (saved, database) => request({
+			channel: "vault-session",
+			action: "remember",
+			revision: saved?.revision,
+			database
+		}),
+		clear: () => request({
+			channel: "vault-session",
+			action: "clear"
+		})
 	};
 }
 // src/theme.ts
@@ -6903,7 +6875,7 @@ var App_default = /* @__PURE__ */ defineComponent({
 			lockSetting.value = lockAfter(settings[LOCK_SETTING_KEY]);
 			return lockSetting.value;
 		}
-		const session = createSessionStore(browser.storage.session, readLockSetting);
+		const session = createSessionClient((message) => browser.runtime.sendMessage(message));
 		const unencrypted = computed(() => saved.value?.kind === "aegis" && !isEncrypted(saved.value.vault));
 		const lockDescription = computed(() => unencrypted.value ? "This vault is unencrypted and opens without a password. Import an encrypted export to use vault locking." : lockSetting.value === "restart" ? "Stays unlocked until Firefox restarts or you select Lock." : `Locks ${lockSetting.value} minute${lockSetting.value === "1" ? "" : "s"} after unlocking or opening the extension, or when Firefox restarts.`);
 		function saveConfig(event) {

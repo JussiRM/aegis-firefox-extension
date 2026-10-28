@@ -1,5 +1,6 @@
 import { SESSION_KEY, type SessionStorage } from './session.ts';
 import { LOCK_SETTING_KEY, lockAfter, lockDeadline } from './settings.ts';
+import { createSerialQueue, type Serialize } from './serial.ts';
 
 export const LOCK_ALARM = 'lock-vault';
 interface LockApi {
@@ -13,11 +14,11 @@ interface LockApi {
   };
 }
 
-// All events share this queue so an old timer cannot override a newer unlock.
-export function createAutoLock(api: LockApi, now = () => Date.now()) {
-  let pending = Promise.resolve();
+// The background supplies the session store's queue, including manual locks
+// and view renewals, so a stale alarm cannot delete a newer session.
+export function createAutoLock(api: LockApi, now = () => Date.now(), serialize: Serialize = createSerialQueue()) {
   return function reconcile() {
-    const next = pending.then(async () => {
+    return serialize(async () => {
       const settings = await api.storage.local.get(LOCK_SETTING_KEY);
       const cache = await api.storage.session.get(SESSION_KEY);
       const unlocked = cache[SESSION_KEY];
@@ -31,7 +32,5 @@ export function createAutoLock(api: LockApi, now = () => Date.now()) {
         api.alarms.create(LOCK_ALARM, { when: deadline });
       }
     });
-    pending = next.catch(() => {});
-    return next;
   };
 }

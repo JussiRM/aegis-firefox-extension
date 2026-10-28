@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { parseFile, isEncrypted, decryptAegis, normalizeDatabase, sealLocal, openStored, MAX_FILE_SIZE } from './vault';
-import { createSessionStore, SESSION_KEY } from './session';
+import { SESSION_KEY } from './session';
+import { createSessionClient } from './session-client';
 import { LOCK_OPTIONS, LOCK_SETTING_KEY, lockAfter, lockDeadline, type LockAfter } from './settings';
 import { THEME_GROUPS, DEFAULT_THEME, THEME_SETTING_KEY, THEME_MODE_SETTING_KEY, themeColor, themeMode, normalizeHex, applyTheme, type ThemeMode } from './theme';
 import AccountCard from './components/AccountCard.vue';
@@ -110,7 +111,7 @@ async function readLockSetting() {
   lockSetting.value = lockAfter(settings[LOCK_SETTING_KEY]);
   return lockSetting.value;
 }
-const session = createSessionStore(browser.storage.session, readLockSetting);
+const session = createSessionClient(message => browser.runtime.sendMessage(message));
 const unencrypted = computed(() => saved.value?.kind === 'aegis' && !isEncrypted(saved.value.vault));
 const lockDescription = computed(() => unencrypted.value
   ? 'This vault is unencrypted and opens without a password. Import an encrypted export to use vault locking.'

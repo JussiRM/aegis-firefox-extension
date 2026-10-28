@@ -84,6 +84,9 @@ Select the color swatch to open the inline hue, saturation, and lightness slider
 
 ## Develop and verify
 
+For Mozilla submission, see [reproducible build instructions](docs/BUILDING.md)
+and [listing text, privacy statement, and reviewer notes](docs/AMO-LISTING.md).
+
 Requires Node.js 22.14+. Packaging and the Firefox smoke test also require Python 3; the smoke test requires an installed Firefox browser.
 
 ```sh
@@ -100,7 +103,7 @@ Choose the relevant commands below when verifying changes or preparing a package
 | `npm run lint` | Run Mozilla's Add-ons Linter against the built extension. |
 | `npm run test:firefox` | Build and run the Firefox integration smoke test. |
 | `npm run screenshots` | Build, run the Firefox smoke test to refresh settings and import screenshots, and capture the dark/light README showcase using public demo accounts. |
-| `npm run package` | Build, lint, and create `artifacts/aegis-viewer-<version>.zip`, using the manifest version. |
+| `npm run package` | Build, lint, and create matching runtime and source ZIPs plus SHA-256 checksums in `artifacts/`, using the manifest version. |
 
 Every build includes typechecking. The Firefox smoke test uses a disposable headless profile and public demo secrets to check imports, password handling, code rollover, copy/filtering, locking across views and restarts, appearance settings, and removal. It never opens the user's Firefox profile. Test-only clock and lock-expiry hooks are injected into its disposable archive. Screenshots are written under `artifacts/`, including `preview.png`, `settings-preview.png`, and `settings-dark-preview.png`.
 
@@ -109,6 +112,11 @@ The linter fails on errors and unexpected warnings. `scripts/lint.mjs` permits o
 Edit application code in `src/` and styles in `src/app.scss`, then rebuild. Vite compiles Vue 3 components, TypeScript, and Sass into `extension/app.html`, `app.js`, `app.css`, and `background.js`; direct edits to those generated files are overwritten. JavaScript and CSS output remain unminified for readability. The manifest and icons are maintained directly in `extension/`. Runtime dependencies and compiled templates are bundled, so running the extension requires no package installation, runtime template compiler, or relaxed content security policy.
 
 `src/App.vue` coordinates imports, unlocking, settings, and shared state; `src/components/AccountCard.vue` renders accounts and countdowns. Vault, TOTP, and session logic live in `src/vault.ts`, `src/totp.ts`, and `src/session.ts`. Appearance is defined in `src/theme.ts`; lock policies and alarms live in `src/settings.ts`, `src/auto-lock.ts`, and `src/background.ts`. Unit tests execute TypeScript modules directly using Node's type stripping.
+
+Unlocked-session reads, renewals, writes, and locks are owned by the background
+page. Views use `src/session-client.ts` messages, and the background shares one
+`src/serial.ts` queue with automatic expiry. A view opening during a manual lock
+cannot restore a stale unlocked cache after the lock completes.
 
 ## License
 

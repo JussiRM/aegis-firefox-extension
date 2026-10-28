@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createAutoLock, LOCK_ALARM } from '../src/auto-lock.ts';
 import { createSessionStore, SESSION_KEY } from '../src/session.ts';
 import { LOCK_OPTIONS, lockAfter } from '../src/settings.ts';
+import { createSerialQueue } from '../src/serial.ts';
 
 function fixture(setting = 'restart') {
   let clock = 1_000_000;
@@ -22,10 +23,11 @@ function fixture(setting = 'restart') {
     },
   };
   const now = () => clock;
+  const serialize = createSerialQueue();
   return {
     local, values, alarms, api, advance(ms) { clock += ms; },
-    session: createSessionStore(api.storage.session, async () => lockAfter(local.lockAfter), now),
-    reconcile: createAutoLock(api, now),
+    session: createSessionStore(api.storage.session, async () => lockAfter(local.lockAfter), now, serialize),
+    reconcile: createAutoLock(api, now, serialize),
   };
 }
 const saved = { revision: 'vault' }, db = { version: 3, entries: [] };
@@ -142,4 +144,29 @@ test('legacy sessions keep restart behavior and lock when a timer is enabled', a
   f.local.lockAfter = '5';
   await f.reconcile();
   assert.equal(await f.session.read(saved), null);
+});
+
+test('an alarm paused on an expired snapshot cannot delete a concurrent new unlock', async () => {
+  const f = fixture('1');
+  await f.session.remember(saved, db);
+  f.advance(60_000);
+  let reading, resume;
+  const reachedRead = new Promise(resolve => { reading = resolve; });
+  const pausedRead = new Promise(resolve => { resume = resolve; });
+  const get = f.api.storage.session.get;
+  f.api.storage.session.get = async key => {
+    const snapshot = await get(key);
+    reading();
+    await pausedRead;
+    return snapshot;
+  };
+  const expiring = f.reconcile();
+  await reachedRead;
+  const unlocking = f.session.remember(saved, db);
+  resume();
+  await Promise.all([expiring, unlocking]);
+  await f.reconcile();
+  assert.ok(await f.session.read(saved));
+  assert.equal(f.values[SESSION_KEY].unlockedAt, 1_060_000);
+  assert.equal(f.alarms.get(LOCK_ALARM), 1_120_000);
 });

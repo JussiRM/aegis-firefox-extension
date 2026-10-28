@@ -1,5 +1,6 @@
 import type { RawDatabase } from './types.ts';
 import { lockDeadline, type LockAfter } from './settings.ts';
+import { createSerialQueue, type Serialize } from './serial.ts';
 
 type Revision = { revision?: string } | null;
 export interface UnlockedVault { revision: string; database: RawDatabase; unlockedAt?: number }
@@ -12,9 +13,11 @@ export interface SessionStorage {
 // storage.session is browser-session memory, never persistent vault storage.
 export const SESSION_KEY = 'unlockedVault';
 
-export function createSessionStore(storage: SessionStorage, readSetting: () => Promise<LockAfter> = async () => 'restart', now = () => Date.now()) {
+// Instantiate only in the background page. Views use createSessionClient so
+// renewals and locks from different extension contexts share this queue.
+export function createSessionStore(storage: SessionStorage, readSetting: () => Promise<LockAfter> = async () => 'restart', now = () => Date.now(), serialize: Serialize = createSerialQueue()) {
   return {
-    async read(saved: Revision, { resetTimeout = false } = {}) {
+    read(saved: Revision, { resetTimeout = false } = {}) { return serialize(async () => {
       if (!saved?.revision) return null;
       const result = await storage.get(SESSION_KEY);
       const unlocked = result[SESSION_KEY];
@@ -30,8 +33,8 @@ export function createSessionStore(storage: SessionStorage, readSetting: () => P
         await storage.set({ [SESSION_KEY]: { ...unlocked, unlockedAt: now() } });
       }
       return unlocked.database;
-    },
-    async remember(saved: Revision, database: RawDatabase) {
+    }); },
+    remember(saved: Revision, database: RawDatabase) { return serialize(async () => {
       if (!saved?.revision) throw new Error('The saved vault has no revision. Import it again.');
       // Exclude icons, notes and other unused export data from session memory.
       const compact = JSON.parse(JSON.stringify({
@@ -50,7 +53,7 @@ export function createSessionStore(storage: SessionStorage, readSetting: () => P
       try { await storage.set({ [SESSION_KEY]: { revision: saved.revision, database: compact, unlockedAt } }); }
       catch { throw new Error('Firefox could not keep this vault unlocked in session memory. Try importing a smaller export.'); }
       return unlockedAt;
-    },
-    async clear() { await storage.remove(SESSION_KEY); },
+    }); },
+    clear() { return serialize(() => storage.remove(SESSION_KEY)); },
   };
 }
